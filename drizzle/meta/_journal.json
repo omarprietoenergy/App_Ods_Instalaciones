@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "mysql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1766429173657,
+      "tag": "0000_luxuriant_living_mummy",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1766429345954,
+      "tag": "0001_chilly_namora",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1769503649518,
+      "tag": "0002_brave_yellowjacket",
+      "breakpoints": true
+    }
+  ]
+}

@@ -1,0 +1,169 @@
+- [x] **V13.0 - Technician Access & Email Templates** <!-- id: 130 -->
+    - [x] Debug and Fix Technician Installation Visibility <!-- id: 131 -->
+    - [x] Implement `EmailTemplates` CRUD in Backend <!-- id: 132 -->
+    - [x] Create `EmailTemplates.tsx` Page (3 Tabs) <!-- id: 133 -->
+    - [x] Implement Variable Replacement System <!-- id: 134 -->
+    - [x] Add Default Templates Initialization <!-- id: 135 -->
+    - [x] Integrity Check & Deployment <!-- id: 136 -->
+
+- [x] **V14.0 - Restricted Access & User Management** <!-- id: 140 -->
+    - [x] Remove public registration <!-- id: 141 -->
+    - [x] Implement Admin-only user creation with password <!-- id: 142 -->
+    - [x] Restrict Google Auth to existing users <!-- id: 143 -->
+    - [x] Add diagnostic logs for technicians <!-- id: 144 -->
+
+- [x] **V14.1 - Stability & Data Fixes** <!-- id: 150 -->
+    - [x] Fix password validation in User Update (make optional) <!-- id: 151 -->
+    - [x] Correct Technician IDs in existing installations <!-- id: 152 -->
+    - [x] Consolidate `assignedTechnicianId` vs `assignedTechnicianIds` <!-- id: 153 -->
+    - [x] Finalize V14.1 Bundle and Deployment <!-- id: 154 -->
+
+- [x] **V14.2 - Filtering & Security Refinement** <!-- id: 160 -->
+    - [x] Sync `technicianDailyAssignments` with `installations` <!-- id: 161 -->
+    - [x] Normalize `openId` for local users (unique values) <!-- id: 162 -->
+    - [x] Add `DELETE` route for technicians in installations <!-- id: 163 -->
+    - [x] Finalize V14.2 Bundle and Deployment <!-- id: 164 -->
+
+- [x] **V14.3 - Global Refinement & Team Sync** <!-- id: 170 -->
+    - [x] Refine `getInstallationsByTechnician` SQL/Union logic <!-- id: 171 -->
+    - [x] Normalize `assignedTechnicianIds` write logic (prevent empty strings) <!-- id: 172 -->
+    - [x] Fix Technician Selection Dropdown z-index/portal <!-- id: 173 -->
+    - [x] Integrity check with Team (GPT/Comet) <!-- id: 174 -->
+    - [x] Generate V14.3 Bundle <!-- id: 175 -->
+
+- [x] **V14.4 - Final Refinement & Logs** <!-- id: 180 -->
+    - [x] Add diagnostic counts log (ficha vs daily) <!-- id: 181 -->
+    - [x] Force `[]` normalization over `null` <!-- id: 182 -->
+    - [x] Prepare V14.4 Bundle <!-- id: 183 -->
+
+- [x] **V14.5 - Infallible Diagnostics** <!-- id: 190 -->
+    - [x] Implement stderr + file-append diagnostics <!-- id: 191 -->
+    - [x] Verify `normalizeAssignedIds` absolute robustness <!-- id: 192 -->
+    - [x] Prepare v14.5 Bundle <!-- id: 193 -->
+
+- [x] **V14.6 - Endpoint Separation & Audit** <!-- id: 200 -->
+    - [x] Identify and separate "Mis Instalaciones" vs "Control Diario" endpoints <!-- id: 201 -->
+    - [x] Implement `getInstallationsByTechnicianToday` (Strict Daily) <!-- id: 202 -->
+    - [x] Update frontend to use specific endpoints <!-- id: 203 -->
+    - [x] Add enhanced [Diagnostic] logs to both endpoints <!-- id: 204 -->
+    - [x] Generate V14.6 Bundle <!-- id: 205 -->
+
+- [x] **V14.7 - UX Refinement & Final Bundle** <!-- id: 210 -->
+    - [x] Add empty state feedback to Daily Report selector <!-- id: 211 -->
+    - [x] Implement "No assignment" warning and guidance <!-- id: 212 -->
+    - [x] Update version markers to v14.7 <!-- id: 213 -->
+    - [x] Generate v14.7 Production Bundle <!-- id: 214 -->
+
+- [x] **V14.8 - Fix Double Listen Error** <!-- id: 220 -->
+    - [x] Analyze `server.cjs` vs `ods_backend/index.cjs` startup logic <!-- id: 221 -->
+    - [x] Implement global idempotency check for `server.listen()` <!-- id: 222 -->
+    - [x] Ensure `NODE_ENV=production` disables all dev logic <!-- id: 223 -->
+    - [x] Update version to v14.8 and generate bundle <!-- id: 224 -->
+
+- [x] **V14.8 - Fix Double Listen Error** <!-- id: 220 -->
+    - [x] Analyze `server.cjs` vs `ods_backend/index.cjs` startup logic <!-- id: 221 -->
+    - [x] Implement global idempotency check for `server.listen()` <!-- id: 222 -->
+    - [x] Ensure `NODE_ENV=production` disables all dev logic <!-- id: 223 -->
+    - [x] Update version to v14.8 and generate bundle <!-- id: 224 -->
+
+- [x] **V14.9 - Final Bug Fixes (UI & Logic)** <!-- id: 230 -->
+    - [x] Fix Bug D: Technician selector UI (z-index/Portal/Radix) - *Partially (Invisible)* <!-- id: 231 -->
+    - [x] Expand `listTechnicians` permissions (admin_manager, project_manager) <!-- id: 232 -->
+    - [x] Fix Bug B: Local-date aware "Today" filtering in `db.ts` <!-- id: 233 -->
+    - [x] Final production bundle v14.9 <!-- id: 234 -->
+
+- [x] **V15.0 - Ultimate UI Fix (Bug D)** <!-- id: 240 -->
+    - [x] Fix Bug D: Resolve Popover anchoring and positioning in `Installations.tsx` - *Incomplete (Ref missing)* <!-- id: 241 -->
+    - [x] Ensure `PopoverContent` has `pointer-events: auto` and correct Portal <!-- id: 242 -->
+    - [x] Verify `PopoverTrigger` ref forwarding <!-- id: 243 -->
+    - [x] Final production bundle v15.0 <!-- id: 244 -->
+
+- [x] **V15.1 - The Real Fix (Bug D - Ref Forwarding)** <!-- id: 250 -->
+    - [x] Fix `Button.tsx` to use `React.forwardRef` (CRITICAL) <!-- id: 251 -->
+    - [x] Simplify `Installations.tsx` (remove redundant Anchor, use stable ref) <!-- id: 252 -->
+    - [x] Final production bundle v15.1 <!-- id: 253 -->
+
+- [x] **EPIC A: Technician Home & Activity Tracking (v15.2)** <!-- id: 300 -->
+    - [x] **A-01/02 - DB Schema & Migrations** <!-- id: 301 -->
+        - [x] Extend `technicianDailyAssignments` (approval, source, minutes, activeTime) <!-- id: 301a -->
+        - [x] Create `technicianShifts` table (fichaje) <!-- id: 301b -->
+        - [x] Create `notifications` table (optional/recommended) <!-- id: 301c -->
+    - [x] **A-03/04 - Backend: Daily List & "Ensure Plan"** <!-- id: 302 -->
+        - [x] Implement `ensurePlanForDate` (copy/seed logic) <!-- id: 302a -->
+        - [x] TRPC: `dailyAssignments.listForTechnician` (Hoy/Mañana) <!-- id: 302b -->
+    - [x] **A-05 - Backend: Activity Logic (Start/Pause/Resume)** <!-- id: 303 -->
+        - [x] Implement state machine & time calculation (totalMinutes) <!-- id: 303a -->
+        - [x] Handle "Single Active Activity" rule & Auto-pause <!-- id: 303b -->
+    - [x] **A-06/07 - Backend: Alerts & Approvals** <!-- id: 304 -->
+        - [x] Logic for "Started without assignment" (Pending Approval) <!-- id: 304a -->
+        - [x] TRPC: `approvePending` / `rejectPending` <!-- id: 304b -->
+    - [x] **A-PRE - Pre-Frontend Fixes (Mandatory)** <!-- id: 308 -->
+        - [x] **Date Standardization**: `getLocalDateStr('Europe/Madrid')` in DB/Routers. <!-- id: 308a -->
+        - [x] **Deduplication**: Logic to clean duplicates before Unique Index. <!-- id: 308b -->
+    - [x] **A-08/09 - Frontend: Technician Home (Oracle-style)** <!-- id: 305 -->
+        - [x] UI: Shift Control (Iniciar/Pausar/Fin Jornada) <!-- id: 305a -->
+        - [x] UI: Activity Cards (Active vs Pending) & Actions (Maps, Call) <!-- id: 305b -->
+    - [x] **A-FIX - React Hook Fix (v15.2-beta.1)** <!-- id: 309 -->
+        - [x] Fix Minified React error #300 in `Home.tsx` <!-- id: 309a -->
+        - [x] Bump visual version and regenerate bundle <!-- id: 309b -->
+    - [x] **A-FIX - Plan Sync & Auth (v15.2-beta.2)** <!-- id: 310 -->
+        - [x] Sync `ensureDailyPlan` with calendar ranges <!-- id: 310a -->
+        - [x] Fix Technician ACL for daily assignments <!-- id: 310b -->
+        - [x] Add diagnostic logs for trace-ability <!-- id: 310c -->
+        - [x] Bump version and regenerate bundle <!-- id: 310d -->
+    - [x] **A-FIX - Plan Reconciliation (v15.2-beta.3)** <!-- id: 311 -->
+        - [x] Implement robust plan reconciliation (Calendar vs Daily) <!-- id: 311a -->
+        - [x] Fix early return bug in `ensureDailyPlan` <!-- id: 311b -->
+        - [x] Add granular TRPC logs for seeded items <!-- id: 311c -->
+        - [x] Bump version and regenerate bundle <!-- id: 311d -->
+    - [x] **A-FIX - Activity Control & Mobile (v15.2-beta.4.1)** <!-- id: 312 -->
+        - [x] Backend: Add logs & traceability to `startWork`/`pauseWork` <!-- id: 312a -->
+        - [x] Frontend: Fix "Start" silent failure (property access) & activity/shift sync <!-- id: 312b -->
+        - [x] UI: Implement Mobile-First layout (sidebar/cards/buttons) <!-- id: 312c -->
+        - [x] Bump version and regenerate bundle (v15.2-beta.4.1) <!-- id: 312d -->
+    - [x] **A-FIX - Master Status Sync & Enforcement (v15.2-beta.5)** <!-- id: 313 -->
+        - [x] Backend: Sync `installations.status` (pending -> in_progress) on `startWork` <!-- id: 313a -->
+        - [x] Backend: Enforce signature/conformity check in `completeWork` <!-- id: 313b -->
+        - [x] Backend: Enforce daily report check in `shifts.end` (if >=30m) <!-- id: 313c -->
+        - [x] Backend: Record `installationStatusHistory` and send automated emails <!-- id: 313g -->
+        - [x] Frontend: Add "Sign" button & compliance modals to `ActivityCard` <!-- id: 313d -->
+        - [x] Frontend: Implement shift-end validation modal <!-- id: 313e -->
+        - [x] Bump version (v15.2-beta.5) and regenerate bundle <!-- id: 313f -->
+    - [x] **A-FIX - UX Refinement & Deep-linking (v15.2-beta.5.1)** <!-- id: 314 -->
+        - [x] Frontend: Refine `ActivityCard` buttons (conditional logic) <!-- id: 314a -->
+        - [x] Frontend: Implement deep-linking to signature tab in `InstallationDetail` <!-- id: 314b -->
+        - [x] Frontend: Add CTA "Ir a Partes" in shift-end modal <!-- id: 314c -->
+        - [x] Bump version (v15.2-beta.5.1) and regenerate bundle <!-- id: 314d -->
+    - [x] **A-FIX - Shift-End Compliance Pre-check (v15.2-beta.5.2)** <!-- id: 315 -->
+        - [x] Backend: Add `shifts.canEnd` tRPC query for pre-validation <!-- id: 315a -->
+        - [x] Frontend: Implement pre-check logic in `ShiftControl` <!-- id: 315b -->
+        - [x] Frontend: Create "Missing Daily Report" blocking modal with CTA <!-- id: 315c -->
+        - [x] Bump version (v15.2-beta.5.2) and regenerate bundle <!-- id: 315d -->
+    - [ ] **A-10 - Frontend: PM Dashboard Alerts** <!-- id: 306 -->
+        - [ ] View & Resolve Pending Assignments <!-- id: 306a -->
+    - [ ] **A-11/12/13 - Wrap up** <!-- id: 307 -->
+        - [ ] Payroll Query stub <!-- id: 307a -->
+        - [ ] Documentation (Walkthrough A) & Verification <!-- id: 307b -->
+- [/] **EPIC B: Costes por expediente (Materiales + Dietas/Gastos)** <!-- id: 400 -->
+    - [x] **B-01: Update Database Schema & Migrations** <!-- id: 10 -->
+    - [x] Modify `materials` table (add supplier, delivery note, update status enum). <!-- id: 11 -->
+    - [x] Create `expenses` table. <!-- id: 12 -->
+    - [x] Create migration script (`migrate_v15_3.ts`). <!-- id: 13 -->
+- [x] **B-02: Implement Backend API (tRPC)** <!-- id: 14 -->
+    - [x] Create `expenses` router (CRUD, validation, photo upload). <!-- id: 15 -->
+    - [x] Update `materials` router (validation rules, new statuses). <!-- id: 16 -->
+    - [x] Implement `expenses.downloadZip` endpoint. <!-- id: 17 -->
+- [x] **B-03: Implement Permissions** <!-- id: 18 -->
+    - [x] Restrict expense/material approval to Admin/PM. <!-- id: 19 -->
+    - [x] Restrict zip download to Admin/PM. <!-- id: 20 -->
+- [x] **B-04: UI - Material Recibido Form** <!-- id: 404 -->
+    - [x] Create Tab Layout (Requests/Received/Expenses) <!-- id: 404a -->
+    - [x] Implement "Reception" Form (Supplier, Delivery Note, Photo) <!-- id: 404b -->
+    - [x] Implement "Material Recibido" List & Status <!-- id: 404c -->
+- [x] **B-05: UI - Gasto / Dieta Form** <!-- id: 405 -->
+    - [x] Implement "Expense" Form (Category, Vendor, Amount, Photo) <!-- id: 405a -->
+    - [x] Implement "Expenses" List <!-- id: 405b -->
+    - [x] Add "Download ZIP" button (Manager only) <!-- id: 405c -->
+- [ ] **B-06 — Permissions & Visibility Logic** <!-- id: 406 -->
+- [ ] **B-07 — Bulk Download (Justificantes ZIP/PDF)** <!-- id: 407 -->
+- [ ] **B-08 — Export Summary (CSV/Excel)** <!-- id: 408 -->

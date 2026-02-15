@@ -1,0 +1,48 @@
+@import 'react-big-calendar/lib/css/react-big-calendar.css';
+
+.rbc-calendar {
+  min-height: 600px;
+  font-family: inherit;
+}
+
+.rbc-toolbar {
+  margin-bottom: 1rem;
+}
+
+.rbc-month-view, .rbc-time-view, .rbc-agenda-view {
+  border-radius: 0.5rem;
+  overflow: hidden;
+  border: 1px solid #e5e7eb;
+}
+
+.rbc-header {
+  padding: 0.5rem;
+  font-weight: 600;
+  background-color: #f9fafb;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.rbc-event {
+  border-radius: 4px;
+}
+
+.rbc-off-range-bg {
+  background-color: #f9fafb;
+}
+
+.rbc-today {
+  background-color: #eff6ff;
+}
+
+/* Year View Grid */
+.year-view-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+}
+
+@media (max-width: 768px) {
+  .year-view-grid {
+    grid-template-columns: repeat(1, 1fr);
+  }
+}
