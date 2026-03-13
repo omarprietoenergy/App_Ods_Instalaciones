@@ -2,35 +2,47 @@ import { ENV } from './_core/env';
 import fs from 'node:fs/promises';
 import * as nodePath from 'node:path';
 import { existsSync } from 'node:fs';
+import { S3Client, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
-type StorageConfig = { baseUrl: string; apiKey: string };
+let _s3Client: S3Client | null = null;
 
-function getStorageConfig(): StorageConfig {
-  const baseUrl = ENV.forgeApiUrl;
-  const apiKey = ENV.forgeApiKey;
+function getS3Client() {
+  if (_s3Client) return _s3Client;
 
-  if (!baseUrl || !apiKey) {
-    if (ENV.storageType === 's3') {
-      throw new Error(
-        "Storage proxy credentials missing: set BUILT_IN_FORGE_API_URL and BUILT_IN_FORGE_API_KEY"
-      );
+  const endpoint = process.env.S3_ENDPOINT;
+  const bucket = process.env.S3_BUCKET;
+  const accessKey = process.env.S3_ACCESS_KEY_ID;
+  const secretKey = process.env.S3_SECRET_ACCESS_KEY;
+
+  if (!endpoint || !bucket || !accessKey || !secretKey) {
+    if (process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging') {
+      console.error("[Storage] CRITICAL ERROR: S3/Spaces variables are missing in production/staging environment.");
+      // In staging/prod we DO NOT fallback to local to avoid data loss on container restart
+      return null;
     }
-    return { baseUrl: "", apiKey: "" };
+    return null; // Fallback to local later in logic if env is development
   }
 
-  return { baseUrl: baseUrl.replace(/\/+$/, ""), apiKey };
+  console.log(`[Storage] Initializing S3 Client for endpoint: ${endpoint} (Bucket: ${bucket})`);
+  _s3Client = new S3Client({
+    endpoint: endpoint.startsWith('http') ? endpoint : `https://${endpoint}`,
+    region: "us-east-1", // DO Spaces uses us-east-1 for compatibility
+    credentials: {
+      accessKeyId: accessKey,
+      secretAccessKey: secretKey,
+    },
+    forcePathStyle: false, // DigitalOcean requires false
+  });
+  return _s3Client;
 }
 
-// Local storage helpers
-async function ensureDirectoryExists(filePath: string) {
-  const dirname = nodePath.dirname(filePath);
-  if (!existsSync(dirname)) {
-    await fs.mkdir(dirname, { recursive: true });
-  }
+function normalizeKey(relKey: string): string {
+  return relKey.replace(/^\\/+/, "");
 }
 
 function getLocalFilePath(relKey: string): string {
-  return nodePath.join(process.cwd(), ENV.uploadDir, normalizeKey(relKey));
+  return nodePath.join(process.cwd(), ENV.uploadDir || 'uploads', normalizeKey(relKey));
 }
 
 function getLocalUrl(relKey: string): string {
@@ -38,53 +50,11 @@ function getLocalUrl(relKey: string): string {
   return `${baseUrl}/uploads/${normalizeKey(relKey)}`;
 }
 
-function buildUploadUrl(baseUrl: string, relKey: string): URL {
-  const url = new URL("v1/storage/upload", ensureTrailingSlash(baseUrl));
-  url.searchParams.set("path", normalizeKey(relKey));
-  return url;
-}
-
-async function buildDownloadUrl(
-  baseUrl: string,
-  relKey: string,
-  apiKey: string
-): Promise<string> {
-  const downloadApiUrl = new URL(
-    "v1/storage/downloadUrl",
-    ensureTrailingSlash(baseUrl)
-  );
-  downloadApiUrl.searchParams.set("path", normalizeKey(relKey));
-  const response = await fetch(downloadApiUrl, {
-    method: "GET",
-    headers: buildAuthHeaders(apiKey),
-  });
-  return (await response.json()).url;
-}
-
-function ensureTrailingSlash(value: string): string {
-  return value.endsWith("/") ? value : `${value}/`;
-}
-
-function normalizeKey(relKey: string): string {
-  return relKey.replace(/^\/+/, "");
-}
-
-function toFormData(
-  data: Buffer | Uint8Array | string,
-  contentType: string,
-  fileName: string
-): FormData {
-  const blob =
-    typeof data === "string"
-      ? new Blob([data], { type: contentType })
-      : new Blob([data as any], { type: contentType });
-  const form = new FormData();
-  form.append("file", blob, fileName || "file");
-  return form;
-}
-
-function buildAuthHeaders(apiKey: string): HeadersInit {
-  return { Authorization: `Bearer ${apiKey}` };
+async function ensureDirectoryExists(filePath: string) {
+  const dirname = nodePath.dirname(filePath);
+  if (!existsSync(dirname)) {
+    await fs.mkdir(dirname, { recursive: true });
+  }
 }
 
 export async function storagePut(
@@ -93,64 +63,84 @@ export async function storagePut(
   contentType = "application/octet-stream"
 ): Promise<{ key: string; url: string }> {
   const key = normalizeKey(relKey);
+  const s3 = getS3Client();
 
-  if (ENV.storageType === 'local') {
+  if (s3) {
+    const bucket = process.env.S3_BUCKET!;
+    const body = typeof data === 'string' ? Buffer.from(data) : data;
+    
+    await s3.send(new PutObjectCommand({
+      Bucket: bucket,
+      Key: key,
+      Body: body,
+      ContentType: contentType,
+      ACL: "public-read",
+    }));
+
+    // Construct URL for DO Spaces
+    // https://BUCKET.ENDPOINT/KEY
+    const endpoint = process.env.S3_ENDPOINT!.replace(/^https?:\/\//, '');
+    const url = `https://${bucket}.${endpoint}/${key}`;
+    return { key, url };
+  }
+
+  // Fallback to local ONLY in development
+  if (process.env.NODE_ENV === 'development') {
     const filePath = getLocalFilePath(key);
     await ensureDirectoryExists(filePath);
-
-    let buffer: Buffer | string;
-    if (typeof data === 'string') {
-      buffer = data;
-    } else if (data instanceof Uint8Array) {
-      buffer = Buffer.from(data);
-    } else {
-      buffer = data;
-    }
-
+    const buffer = typeof data === 'string' ? data : Buffer.from(data);
     await fs.writeFile(filePath, buffer);
     return { key, url: getLocalUrl(key) };
   }
 
-  const { baseUrl, apiKey } = getStorageConfig();
-  const uploadUrl = buildUploadUrl(baseUrl, key);
-  const formData = toFormData(data, contentType, key.split("/").pop() ?? key);
-  const response = await fetch(uploadUrl, {
-    method: "POST",
-    headers: buildAuthHeaders(apiKey),
-    body: formData,
-  });
-
-  if (!response.ok) {
-    const message = await response.text().catch(() => response.statusText);
-    throw new Error(
-      `Storage upload failed (${response.status} ${response.statusText}): ${message}`
-    );
-  }
-  const url = (await response.json()).url;
-  return { key, url };
+  throw new Error("[Storage] Storage put failed: S3 not configured and local fallback disabled in this environment.");
 }
 
 export async function storageGet(relKey: string): Promise<{ key: string; url: string; }> {
   const key = normalizeKey(relKey);
+  const s3 = getS3Client();
 
-  if (ENV.storageType === 'local') {
-    return {
-      key,
-      url: getLocalUrl(key),
-    };
+  if (s3) {
+    const bucket = process.env.S3_BUCKET!;
+    const endpoint = process.env.S3_ENDPOINT!.replace(/^https?:\/\//, '');
+    const url = `https://${bucket}.${endpoint}/${key}`;
+    return { key, url };
   }
 
-  const { baseUrl, apiKey } = getStorageConfig();
-  return {
-    key,
-    url: await buildDownloadUrl(baseUrl, key, apiKey),
-  };
+  if (process.env.NODE_ENV === 'development') {
+    return { key, url: getLocalUrl(key) };
+  }
+
+  throw new Error("[Storage] Storage get failed: S3 not configured.");
 }
 
 export async function storageGetBuffer(relKey: string): Promise<Buffer | null> {
   const key = normalizeKey(relKey);
+  const s3 = getS3Client();
 
-  if (ENV.storageType === 'local') {
+  if (s3) {
+    try {
+      const bucket = process.env.S3_BUCKET!;
+      const response = await s3.send(new GetObjectCommand({
+        Bucket: bucket,
+        Key: key,
+      }));
+      const streamToBuffer = (stream: any): Promise<Buffer> =>
+        new Promise((resolve, reject) => {
+          const chunks: any[] = [];
+          stream.on("data", (chunk: any) => chunks.push(chunk));
+          stream.on("error", reject);
+          stream.on("end", () => resolve(Buffer.concat(chunks)));
+        });
+      
+      return await streamToBuffer(response.Body);
+    } catch (e) {
+      console.error(`[Storage] Failed to fetch buffer from S3 for ${key}`, e);
+      return null;
+    }
+  }
+
+  if (process.env.NODE_ENV === 'development') {
     const filePath = getLocalFilePath(key);
     try {
       return await fs.readFile(filePath);
@@ -159,15 +149,5 @@ export async function storageGetBuffer(relKey: string): Promise<Buffer | null> {
     }
   }
 
-  // Remote
-  try {
-    const { url } = await storageGet(key);
-    const res = await fetch(url);
-    if (!res.ok) return null;
-    const arrayBuffer = await res.arrayBuffer();
-    return Buffer.from(arrayBuffer);
-  } catch (e) {
-    console.error(`[Storage] Failed to fetch buffer for ${key}`, e);
-    return null;
-  }
+  return null;
 }
