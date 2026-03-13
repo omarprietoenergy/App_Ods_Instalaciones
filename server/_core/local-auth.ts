@@ -1,118 +1,115 @@
+import passport from "passport";
+import { Strategy as LocalStrategy } from "passport-local";
+import { type Express } from "express";
+import session from "express-session";
+import { getUserByEmail, getDb, eq } from "../db";
+import { users } from "../../drizzle/schema";
 import bcrypt from "bcryptjs";
-import { type Express, type Request, type Response } from "express";
-import { OAuth2Client } from "google-auth-library";
-import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
-import * as db from "../db";
-import { getSessionCookieOptions } from "./cookies";
-import { sdk } from "./sdk";
-import { ENV } from "./env";
 
-const googleClient = new OAuth2Client();
+export function setupAuth(app: Express) {
+  const sessionSettings: session.SessionOptions = {
+    secret: process.env.SESSION_SECRET || "ods-energy-secret",
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      secure: process.env.NODE_ENV === "production",
+      maxAge: 24 * 60 * 60 * 1000, // 24 hours
+    },
+  };
 
-export function registerLocalAuthRoutes(app: Express) {
-    // Local Login
-    app.post("/api/auth/login", async (req: Request, res: Response) => {
-        const { email, password } = req.body;
+  if (app.get("env") === "production") {
+    app.set("trust proxy", 1);
+  }
 
-        if (!email || !password) {
-            return res.status(400).json({ error: "Email and password are required" });
-        }
+  app.use(session(sessionSettings));
+  app.use(passport.initialize());
+  app.use(passport.session());
 
+  passport.use(
+    new LocalStrategy(
+      { usernameField: "email" },
+      async (email, password, done) => {
         try {
-            // Hotfix v15.3.0.1: Fail fast if DB not configured
-            const database = await db.getDb();
-            if (!database) {
-                console.error("[Auth] Database not configured or connection failed");
-                return res.status(500).json({ error: "DB_NOT_CONFIGURED: Database connection not available. Check .env configuration." });
-            }
+          const db = await getDb();
+          if (!db) {
+             return done(null, false, { message: "Servicio no disponible: Base de datos no conectada." });
+          }
 
-            const user = await db.getUserByEmail(email);
-            if (!user || !user.password) {
-                return res.status(401).json({ error: "Invalid credentials" });
-            }
-
-            const isValid = await bcrypt.compare(password, user.password);
-            if (!isValid) {
-                return res.status(401).json({ error: "Invalid credentials" });
-            }
-
-            // Fix: Force stable local-ID for session
-            const sessionToken = await sdk.createSessionToken(`local-${user.id}`, {
-                name: user.name || "",
-                expiresInMs: ONE_YEAR_MS,
-            });
-
-            const cookieOptions = getSessionCookieOptions(req);
-            res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
-
-            res.json({ success: true, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
-        } catch (error) {
-            console.error("[Auth] Login failed", error);
-            res.status(500).json({ error: "Internal server error" });
-        }
-    });
-
-    // Google Login
-    app.post("/api/auth/google", async (req: Request, res: Response) => {
-        const { credential } = req.body; // Google Identity Services JWT
-
-        if (!credential) {
-            return res.status(400).json({ error: "Google credential is required" });
-        }
-
-        try {
-            const ticket = await googleClient.verifyIdToken({
-                idToken: credential,
-                audience: process.env.GOOGLE_CLIENT_ID,
-            });
-
-            const payload = ticket.getPayload();
-            if (!payload || !payload.email) {
-                return res.status(400).json({ error: "Invalid Google token" });
-            }
-
-            const { email, name, sub: googleId } = payload;
-
-            let user = await db.getUserByEmail(email);
-
+          // Real check if table exists or query fails
+          try {
+            const user = await getUserByEmail(email);
             if (!user) {
-                // RESTRICTED: No auto-registration
-                console.warn(`[Auth] Blocked registration attempt from unauthorized Google account: ${email}`);
-                return res.status(403).json({ error: "No tienes permiso para acceder. Contacta con un administrador." });
+              return done(null, false, { message: "Usuario o contraseña incorrectos." });
             }
 
-            if (!user.openId) {
-                // Link google account to existing local account
-                await db.upsertUser({
-                    ...user,
-                    openId: `google-${googleId}`,
-                    loginMethod: "google",
-                } as any);
-                // Re-fetch to get updated user
-                user = await db.getUserByEmail(email);
+            if (!user.password) {
+               return done(null, false, { message: "Usuario sin contraseña local. Use otro método de login." });
             }
 
-            if (!user) throw new Error("Failed to sync user");
+            const isMatch = await bcrypt.compare(password, user.password);
+            if (!isMatch) {
+              return done(null, false, { message: "Usuario o contraseña incorrectos." });
+            }
 
-            const sessionToken = await sdk.createSessionToken(user.openId || `google-${googleId}`, {
-                name: user.name || "",
-                expiresInMs: ONE_YEAR_MS,
-            });
-
-            const cookieOptions = getSessionCookieOptions(req);
-            res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
-
-            res.json({ success: true, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
+            return done(null, user);
+          } catch (dbErr: any) {
+            console.error("[Auth] Database query error:", dbErr);
+            if (dbErr.code === '42P01') { // Postgres undefined_table
+              return done(null, false, { message: "El sistema no está inicializado. Por favor ejecute las migraciones." });
+            }
+            return done(null, false, { message: "Error interno al acceder a la base de datos." });
+          }
         } catch (error) {
-            console.error("[Auth] Google Login failed", error);
-            res.status(500).json({ error: "Google login failed" });
+          return done(error);
         }
-    });
+      }
+    )
+  );
 
-    // Logout
-    app.post("/api/auth/logout", (req: Request, res: Response) => {
-        const cookieOptions = getSessionCookieOptions(req);
-        res.clearCookie(COOKIE_NAME, cookieOptions);
-        res.json({ success: true });
+  passport.serializeUser((user: any, done) => {
+    done(null, user.id);
+  });
+
+  passport.deserializeUser(async (id: number, done) => {
+    try {
+      const db = await getDb();
+      if (!db) return done(new Error("DB not available"));
+      const [user] = await db.select().from(users).where(eq(users.id, id)).limit(1);
+      done(null, user);
+    } catch (error) {
+      done(error);
+    }
+  });
+
+  app.post("/api/login", (req, res, next) => {
+    passport.authenticate("local", (err: any, user: any, info: any) => {
+      if (err) return next(err);
+      if (!user) {
+        return res.status(401).json({ message: info?.message || "Login fallido" });
+      }
+      req.logIn(user, (loginErr) => {
+        if (loginErr) return next(loginErr);
+        res.json({
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+        });
+      });
+    })(req, res, next);
+  });
+
+  app.post("/api/logout", (req, res, next) => {
+    req.logout((err) => {
+      if (err) return next(err);
+      res.sendStatus(200);
     });
+  });
+
+  app.get("/api/user", (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.sendStatus(401);
+    }
+    res.json(req.user);
+  });
 }

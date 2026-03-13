@@ -1,76 +1,80 @@
 import express, { type Express } from "express";
-import fs from "node:fs";
-import { type Server } from "node:http";
-import { nanoid } from "nanoid";
-import * as nodePath from "node:path";
-import { fileURLToPath } from "node:url";
+import fs from "fs";
+import path, { dirname } from "path";
+import { fileURLToPath } from "url";
+import { type Server } from "http";
+import vite from "vite";
+import { ENV } from "./env";
 
-const __dirname_resolved = typeof __dirname !== 'undefined'
-  ? __dirname
-  : process.cwd();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 export async function setupVite(app: Express, server: Server) {
-  const { createServer: createViteServer } = await import("vite");
   const viteConfig = (await import("../../vite.config")).default;
-  const serverOptions = {
-    middlewareMode: true,
-    hmr: { server },
-    allowedHosts: true as const,
-  };
-
-  const vite = await createViteServer({
+  const viteServer = await vite.createServer({
     ...viteConfig,
-    configFile: false,
-    server: serverOptions,
+    server: {
+      middlewareMode: true,
+      hmr: { server },
+    },
     appType: "custom",
   });
 
-  app.use(vite.middlewares);
+  app.use(viteServer.middlewares);
   app.use("*", async (req, res, next) => {
     const url = req.originalUrl;
 
     try {
-      const clientTemplate = nodePath.resolve(
-        __dirname_resolved,
-        "..",
-        "..",
-        "client",
-        "index.html"
-      );
-
-      // always reload the index.html file from disk incase it changes
-      let template = await fs.promises.readFile(clientTemplate, "utf-8");
-      template = template.replace(
-        `src="/src/main.tsx"`,
-        `src="/src/main.tsx?v=${nanoid()}"`
-      );
-      const page = await vite.transformIndexHtml(url, template);
-      res.status(200).set({ "Content-Type": "text/html" }).end(page);
+      const clientIndexHtmlPath = path.resolve(__dirname, "..", "..", "index.html");
+      let template = fs.readFileSync(clientIndexHtmlPath, "utf-8");
+      template = await viteServer.transformIndexHtml(url, template);
+      res.status(200).set({ "Content-Type": "text/html" }).end(template);
     } catch (e) {
-      vite.ssrFixStacktrace(e as Error);
+      viteServer.ssrFixStacktrace(e as Error);
       next(e);
     }
   });
 }
 
 export function serveStatic(app: Express) {
-  const distPath =
-    process.env.NODE_ENV === "development"
-      ? nodePath.resolve(__dirname_resolved, "..", "..", "dist", "public")
-      : nodePath.resolve(process.cwd(), "dist"); // FIX: DigitalOcean/prod Vite dist folder 
+  // Try to find the dist folder relative to the current file
+  // In production, index.cjs is in ods_backend/
+  // The structure is usually:
+  // /workspace/dist/
+  // /workspace/ods_backend/index.cjs
+  
+  const distPath = path.resolve(process.cwd(), "dist");
+  const indexPath = path.resolve(distPath, "index.html");
 
-  console.log(`[Vite] Initializing static serving from real staticPath: ${distPath}`);
+  console.log(`[Vite] Serving static files from: ${distPath}`);
 
-  if (!fs.existsSync(distPath)) {
-    console.error(
-      `[Vite] CRITICAL ERROR: Could not find the build directory: ${distPath}. Make sure to build the client first`
-    );
+  if (!fs.existsSync(indexPath)) {
+    console.warn(`[Vite] WARNING: index.html not found at ${indexPath}. Frontend may fail to load.`);
   }
 
-  app.use(express.static(distPath, { index: false }));
+  app.use(express.static(distPath));
 
-  // fall through to dist/index.html if the file doesn't exist (SPA routing)
-  app.use("*", (req, res) => {
-    res.sendFile(nodePath.resolve(distPath, "index.html"));
+  // Fallback to index.html for SPA routing
+  app.use("*", (_req, res) => {
+    if (fs.existsSync(indexPath)) {
+      res.sendFile(indexPath);
+    } else {
+      res.status(404).send("Frontend build not found. Please run 'npm run build'.");
+    }
   });
+}
+
+export function logStorageInfo() {
+  const s3Enabled = !!(process.env.S3_ENDPOINT && process.env.S3_BUCKET);
+  const nodeEnv = process.env.NODE_ENV || 'development';
+  
+  if (s3Enabled) {
+    console.log(`[Storage] Mode: S3/Spaces (Endpoint: ${process.env.S3_ENDPOINT}, Bucket: ${process.env.S3_BUCKET})`);
+  } else {
+    if (nodeEnv === 'development') {
+      console.log(`[Storage] Mode: Local Fallback (Allowed in development)`);
+    } else {
+      console.error(`[Storage] Mode: DISABLED (S3 variables missing and local fallback disabled in ${nodeEnv})`);
+    }
+  }
 }
