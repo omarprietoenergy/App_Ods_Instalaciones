@@ -90,6 +90,13 @@ async function startServer() {
     ? uploadDir
     : nodePath.resolve(process.cwd(), uploadDir);
   console.log(`[Server] Mapping /uploads to local path: ${uploadPath}`);
+  
+  // LOGS STORAGE (Requested by User)
+  console.log(`[Server] Active Storage Variables:`);
+  console.log(`[Server] - S3_ENDPOINT: ${process.env.S3_ENDPOINT || 'No configurado'}`);
+  console.log(`[Server] - S3_BUCKET: ${process.env.S3_BUCKET || 'No configurado'}`);
+  console.log(`[Server] - S3_ACCESS_KEY_ID: ${process.env.S3_ACCESS_KEY_ID ? 'Configurado (Oculto)' : 'No configurado'}`);
+  
   app.use("/uploads", express.static(uploadPath));
 
   if (process.env.NODE_ENV === "development") {
@@ -124,19 +131,22 @@ async function startServer() {
   const isPassenger = !!process.env.PASSENGER_APP_ENV ||
     !!process.env.PASSENGER_BASE_URI ||
     !!process.env.LSNODE_PORT ||
+    !!process.env.PHUSION_PASSENGER ||
     (!!process.env.PORT && process.env.PORT.startsWith("/"));
 
-  if (process.env.NODE_ENV === "production" || isPassenger) {
+  console.log(`[Server] Is running under Passenger/cPanel?: ${isPassenger}`);
+
+  if (isPassenger) {
     console.log("--------------------------------------------------");
-    console.log("[Server] Production / Passenger detected.");
+    console.log("[Server] Passenger detected.");
     console.log("[Server] Skipping manual server.listen() to allow Passenger to handle the socket.");
     console.log("--------------------------------------------------");
   } else {
-    // strict idempotency for local dev
+    // strict idempotency for local dev and Standard Production (Like DO App Platform)
     if (!globalThis.__ods_listening) {
       globalThis.__ods_listening = true;
-      server.listen(port, () => {
-        console.log(`[Server] SUCCESS: Running on port ${port} (Env: ${process.env.NODE_ENV || 'production'})`);
+      server.listen(port, "0.0.0.0", () => {
+        console.log(`[Server] SUCCESS: Running on port ${port} (Env: ${process.env.NODE_ENV || 'production'}) (0.0.0.0)`);
       });
     } else {
       console.log("[Server] Already listening (idempotency check).");

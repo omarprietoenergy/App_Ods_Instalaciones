@@ -32,7 +32,8 @@ export async function setupVite(app: Express, server: Server) {
     try {
       const clientTemplate = nodePath.resolve(
         __dirname_resolved,
-        "../..",
+        "..",
+        "..",
         "client",
         "index.html"
       );
@@ -55,10 +56,10 @@ export async function setupVite(app: Express, server: Server) {
 export function serveStatic(app: Express) {
   const distPath =
     process.env.NODE_ENV === "development"
-      ? nodePath.resolve(__dirname_resolved, "../..", "dist", "public")
-      : nodePath.resolve(__dirname_resolved, "..", "public"); // Case for bundle structure (ods_backend/ + public/)
+      ? nodePath.resolve(__dirname_resolved, "..", "..", "dist", "public")
+      : nodePath.resolve(process.cwd(), "dist"); // FIX: DigitalOcean/prod Vite dist folder 
 
-  console.log(`[Vite] Initializing static serving from: ${distPath}`);
+  console.log(`[Vite] Initializing static serving from real staticPath: ${distPath}`);
 
   if (!fs.existsSync(distPath)) {
     console.error(
@@ -68,9 +69,8 @@ export function serveStatic(app: Express) {
 
   app.use(express.static(distPath, { index: false }));
 
-  // fall through to index.html if the file doesn't exist
+  // fall through to dist/index.html if the file doesn't exist (SPA routing)
   app.use("*", (req, res) => {
-    console.log(`[Vite] Static request for ${req.originalUrl} - falling back to index.html`);
     res.sendFile(nodePath.resolve(distPath, "index.html"));
   });
 }
