@@ -1,4 +1,3 @@
-// ... (Top imports same as before)
 import { eq, and, desc, sql, ilike } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
@@ -23,7 +22,6 @@ import {
   expenses
 } from "../drizzle/schema";
 
-// ... (getDb same as before)
 let _db: any = null;
 let _pool: any = null;
 
@@ -31,7 +29,7 @@ export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     _pool = new pg.Pool({
       connectionString: process.env.DATABASE_URL,
-      ssl: process.env.DATABASE_URL.includes("localhost") ? false : { rejectUnauthorized: false }
+      ssl: { rejectUnauthorized: false }
     });
     _db = drizzle(_pool);
   }
