@@ -6,7 +6,7 @@ import { getUserByEmail, getDb, eq } from "../db";
 import { users } from "../../drizzle/schema";
 import bcrypt from "bcryptjs";
 
-export function setupAuth(app: Express) {
+export function registerLocalAuthRoutes(app: Express) {
   const sessionSettings: session.SessionOptions = {
     secret: process.env.SESSION_SECRET || "ods-energy-secret",
     resave: false,

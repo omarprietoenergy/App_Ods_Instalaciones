@@ -217,7 +217,7 @@ export async function getUnreadNotifications(technicianId: number) {
   // Standard SQL logic
   return await db.select().from(notifications).where(and(
     eq(notifications.technicianId, technicianId),
-    sql`${notifications.readAt} IS NULL`
+    sql`read_at IS NULL`
   )).orderBy(desc(notifications.createdAt));
 }
 
@@ -236,5 +236,28 @@ export async function getAllInstallations() {
   const db = await getDb();
   return await db.select().from(installations).orderBy(desc(installations.createdAt));
 }
-// ... (exporting all other users and installations functions)
+
+export async function getUserByOpenId(openId: string) {
+  const db = await getDb();
+  const res = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
+  return res[0];
+}
+
+export async function getUserById(id: number) {
+  const db = await getDb();
+  const res = await db.select().from(users).where(eq(users.id, id)).limit(1);
+  return res[0];
+}
+
+export async function upsertUser(data: any) {
+  const db = await getDb();
+  return await db.insert(users)
+    .values(data)
+    .onConflictDoUpdate({
+      target: [users.email],
+      set: data
+    })
+    .returning();
+}
+
 export { getUserByEmail as getUserByEmailDb }; // to avoid naming conflict with earlier imports if any

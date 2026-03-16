@@ -163,10 +163,3 @@ if (!globalThis.__ods_initialized) {
 } else {
   console.log("[Server] Already initialized, skipping startup sequence.");
 }
-
-// Passenger compatibility export
-// @ts-ignore
-if (typeof module !== 'undefined' && module.exports) {
-  // @ts-ignore
-  module.exports = app;
-}
