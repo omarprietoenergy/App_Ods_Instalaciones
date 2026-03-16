@@ -3,6 +3,9 @@
   "version": "15.3.3",
   "description": "Aplicación de gestión de instalaciones fotovoltaicas",
   "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
   "license": "MIT",
   "scripts": {
     "dev": "NODE_ENV=development tsx watch server/_core/index.ts",
@@ -74,6 +77,8 @@
     "nanoid": "^5.1.5",
     "next-themes": "^0.4.6",
     "nodemailer": "^7.0.12",
+    "passport": "^0.7.0",
+    "passport-local": "^1.0.0",
     "pg": "^8.12.0",
     "react": "^18.3.1",
     "react-big-calendar": "^1.19.4",
