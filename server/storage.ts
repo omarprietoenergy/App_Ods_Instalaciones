@@ -38,7 +38,7 @@ function getS3Client() {
 }
 
 function normalizeKey(relKey: string): string {
-  return relKey.replace(/^\\/+/, "");
+  return relKey.replace(/^\/+/, "");
 }
 
 function getLocalFilePath(relKey: string): string {
