@@ -1,5 +1,6 @@
-import { getDb } from "./db";
+import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
+import pg from "pg";
 import nodePath from "node:path";
 
 export async function runMigrations() {
@@ -8,11 +9,20 @@ export async function runMigrations() {
     return;
   }
 
-  const db = await getDb();
-  if (!db) {
-    console.error("[Migrations] CRITICAL: Could not get database instance for migrations.");
+  if (!process.env.DATABASE_URL) {
+    console.error("[Migrations] CRITICAL: DATABASE_URL is not set. Cannot run migrations.");
     return;
   }
+
+  // Create a dedicated pool for migrations with explicit SSL config
+  const migrationPool = new pg.Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: {
+      rejectUnauthorized: false,
+    },
+  });
+
+  const db = drizzle(migrationPool);
 
   try {
     console.log("[Migrations] Starting database migrations...");
@@ -24,8 +34,10 @@ export async function runMigrations() {
     console.log("[Migrations] SUCCESS: Database migrations applied successfully.");
   } catch (error) {
     console.error("[Migrations] ERROR: Migration failed:", error);
-    // We don't exit process here to allow the server to potentially start 
-    // and show errors in logs, though it might crash due to missing tables later.
     throw error;
+  } finally {
+    // Close the dedicated migration pool after use
+    await migrationPool.end();
+    console.log("[Migrations] Migration pool closed.");
   }
 }
