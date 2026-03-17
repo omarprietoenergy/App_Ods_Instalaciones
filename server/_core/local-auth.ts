@@ -5,6 +5,8 @@ import session from "express-session";
 import { getUserByEmail, getDb, eq } from "../db";
 import { users } from "../../drizzle/schema";
 import bcrypt from "bcryptjs";
+import { sdk } from "./sdk";
+import { COOKIE_NAME, ONE_YEAR_MS } from "../../shared/const";
 
 export function registerLocalAuthRoutes(app: Express) {
   const sessionSettings: session.SessionOptions = {
@@ -80,15 +82,39 @@ export function registerLocalAuthRoutes(app: Express) {
     }
   });
 
-  // Login handler — shared by both routes
-  const loginHandler = (req: any, res: any, next: any) => {
-    passport.authenticate("local", (err: any, user: any, info: any) => {
+  // Login handler — shared by both route prefixes
+  const loginHandler = async (req: any, res: any, next: any) => {
+    passport.authenticate("local", async (err: any, user: any, info: any) => {
       if (err) return next(err);
       if (!user) {
         return res.status(401).json({ message: info?.message || "Login fallido" });
       }
-      req.logIn(user, (loginErr: any) => {
+      req.logIn(user, async (loginErr: any) => {
         if (loginErr) return next(loginErr);
+
+        try {
+          // Create JWT session cookie so tRPC authenticateRequest() also works
+          const openId = `local-${user.id}`;
+          const sessionToken = await sdk.createSessionToken(openId, {
+            expiresInMs: ONE_YEAR_MS,
+            name: user.name || user.email,
+          });
+
+          const cookieOpts: any = {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === "production",
+            sameSite: process.env.NODE_ENV === "production" ? "none" as const : "lax" as const,
+            maxAge: ONE_YEAR_MS,
+            path: "/",
+          };
+
+          res.cookie(COOKIE_NAME, sessionToken, cookieOpts);
+          console.log(`[Auth] Login OK: ${user.email} (id=${user.id}) — JWT cookie set`);
+        } catch (cookieErr) {
+          // Don't block login if JWT cookie fails — Passport session still works
+          console.error("[Auth] Failed to set JWT cookie:", cookieErr);
+        }
+
         res.json({
           id: user.id,
           name: user.name,
@@ -99,8 +125,9 @@ export function registerLocalAuthRoutes(app: Express) {
     })(req, res, next);
   };
 
-  // Logout handler
+  // Logout handler — clear both Passport session and JWT cookie
   const logoutHandler = (req: any, res: any, next: any) => {
+    res.clearCookie(COOKIE_NAME, { path: "/" });
     req.logout((err: any) => {
       if (err) return next(err);
       res.sendStatus(200);
