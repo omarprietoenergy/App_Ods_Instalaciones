@@ -35,7 +35,6 @@ export function registerLocalAuthRoutes(app: Express) {
              return done(null, false, { message: "Servicio no disponible: Base de datos no conectada." });
           }
 
-          // Real check if table exists or query fails
           try {
             const user = await getUserByEmail(email);
             if (!user) {
@@ -54,7 +53,7 @@ export function registerLocalAuthRoutes(app: Express) {
             return done(null, user);
           } catch (dbErr: any) {
             console.error("[Auth] Database query error:", dbErr);
-            if (dbErr.code === '42P01') { // Postgres undefined_table
+            if (dbErr.code === '42P01') {
               return done(null, false, { message: "El sistema no está inicializado. Por favor ejecute las migraciones." });
             }
             return done(null, false, { message: "Error interno al acceder a la base de datos." });
@@ -81,13 +80,14 @@ export function registerLocalAuthRoutes(app: Express) {
     }
   });
 
-  app.post("/api/login", (req, res, next) => {
+  // Login handler — shared by both routes
+  const loginHandler = (req: any, res: any, next: any) => {
     passport.authenticate("local", (err: any, user: any, info: any) => {
       if (err) return next(err);
       if (!user) {
         return res.status(401).json({ message: info?.message || "Login fallido" });
       }
-      req.logIn(user, (loginErr) => {
+      req.logIn(user, (loginErr: any) => {
         if (loginErr) return next(loginErr);
         res.json({
           id: user.id,
@@ -97,19 +97,31 @@ export function registerLocalAuthRoutes(app: Express) {
         });
       });
     })(req, res, next);
-  });
+  };
 
-  app.post("/api/logout", (req, res, next) => {
-    req.logout((err) => {
+  // Logout handler
+  const logoutHandler = (req: any, res: any, next: any) => {
+    req.logout((err: any) => {
       if (err) return next(err);
       res.sendStatus(200);
     });
-  });
+  };
 
-  app.get("/api/user", (req, res) => {
+  // User handler
+  const userHandler = (req: any, res: any) => {
     if (!req.isAuthenticated()) {
       return res.sendStatus(401);
     }
     res.json(req.user);
-  });
+  };
+
+  // Original routes
+  app.post("/api/login", loginHandler);
+  app.post("/api/logout", logoutHandler);
+  app.get("/api/user", userHandler);
+
+  // Aliases — the frontend uses /api/auth/* paths
+  app.post("/api/auth/login", loginHandler);
+  app.post("/api/auth/logout", logoutHandler);
+  app.get("/api/auth/user", userHandler);
 }
