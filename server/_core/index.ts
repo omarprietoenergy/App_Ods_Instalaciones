@@ -45,21 +45,14 @@ const app = express();
 const server = createServer(app);
 
 async function startServer() {
-  // Safely determine __dirname for both CJS and ESM contexts without relying on import.meta.url
-  // In CJS, __dirname is globally available.
-  // In ESM, it's not, and process.cwd() is a reasonable fallback for application root.
   const __dirname_resolved = typeof __dirname !== 'undefined'
     ? __dirname
     : process.cwd();
   console.log("[Server] Configuring middleware...");
-  // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
-  // SERVE UPLOADS (Fix 404 for local storage)
-  // Use process.cwd() to be safe about where the uploads folder is relative to execution
   app.use('/uploads', express.static(nodePath.join(process.cwd(), 'uploads')));
-
 
   console.log("[Server] Setting up local authentication...");
   registerLocalAuthRoutes(app);
@@ -73,7 +66,6 @@ async function startServer() {
   });
 
   console.log("[Server] Setting up tRPC API...");
-  // tRPC API
   app.use(
     "/api/trpc",
     createExpressMiddleware({
@@ -82,9 +74,7 @@ async function startServer() {
     })
   );
 
-  // Serve uploads directory if storage is local
   const uploadDir = process.env.UPLOAD_DIR || "uploads";
-  // Fallback to relative path from process.cwd() or absolute if provided
   const uploadPath = nodePath.isAbsolute(uploadDir)
     ? uploadDir
     : nodePath.resolve(process.cwd(), uploadDir);
@@ -117,9 +107,6 @@ async function startServer() {
 
   console.log(`[Server] Attempting to listen on port: ${port}`);
 
-  // Passenger compatibility: Passenger handles the listening for us.
-  // cPanel/Passenger usually sets PASSENGER_APP_ENV, LSNODE_PORT, or gives us a socket on PORT
-  // User provided specific robust detection:
   const isPassenger = !!process.env.PASSENGER_APP_ENV ||
     !!process.env.PASSENGER_BASE_URI ||
     !!process.env.LSNODE_PORT ||
@@ -131,7 +118,6 @@ async function startServer() {
     console.log("[Server] Skipping manual server.listen() to allow Passenger to handle the socket.");
     console.log("--------------------------------------------------");
   } else {
-    // strict idempotency for local dev
     if (!globalThis.__ods_listening) {
       globalThis.__ods_listening = true;
       server.listen(port, () => {
@@ -143,8 +129,43 @@ async function startServer() {
   }
 }
 
+// INLINE runMigrations - no external import to avoid esbuild --packages=external stripping it
+import { drizzle as drizzleMigrate } from "drizzle-orm/node-postgres";
+import { migrate } from "drizzle-orm/node-postgres/migrator";
+import { Pool as PgPool } from "pg";
+import nodePath2 from "node:path";
+
+async function runMigrations() {
+  if (process.env.RUN_MIGRATIONS !== "true") {
+    console.log("[MIGRATIONS-REAL-PATH-HIT] RUN_MIGRATIONS is not true. Skipping.");
+    return;
+  }
+  if (!process.env.DATABASE_URL) {
+    console.error("[MIGRATIONS-REAL-PATH-HIT] CRITICAL: DATABASE_URL not set.");
+    return;
+  }
+  console.log("[MIGRATIONS-REAL-PATH-HIT] Starting migrations...");
+  console.log("[MIGRATIONS-REAL-SSL-ENABLED] Creating pool with rejectUnauthorized=false");
+  const migrationPool = new PgPool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: { rejectUnauthorized: false },
+  });
+  const migrationDb = drizzleMigrate(migrationPool);
+  try {
+    const migrationsPath = nodePath2.join(process.cwd(), "drizzle");
+    console.log("[MIGRATIONS-REAL-PATH-HIT] migrationsFolder =", migrationsPath);
+    await migrate(migrationDb, { migrationsFolder: migrationsPath });
+    console.log("[MIGRATIONS-REAL-PATH-HIT] Migrations completed OK");
+  } catch (error) {
+    console.error("[MIGRATIONS-REAL-PATH-HIT] ERROR:", error);
+    throw error;
+  } finally {
+    await migrationPool.end();
+    console.log("[MIGRATIONS-REAL-PATH-HIT] Pool closed.");
+  }
+}
+
 // Autonomous Startup
-import { runMigrations } from "../migrations";
 
 declare global {
   var __ods_initialized: boolean | undefined;
