@@ -1,6 +1,6 @@
 import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
-import { createPgPool } from "./db/pool";
+import { Pool } from "pg";
 import nodePath from "node:path";
 
 export async function runMigrations() {
@@ -14,17 +14,24 @@ export async function runMigrations() {
     return;
   }
 
-  // Use the centralized pool factory — same SSL config as queries
-  const migrationPool = createPgPool();
+  console.log("[Migrations] USING INLINE SSL POOL FOR DO");
+  console.log("[Migrations] NODE_ENV =", process.env.NODE_ENV);
+  console.log("[Migrations] DATABASE_URL present =", !!process.env.DATABASE_URL);
+
+  const migrationPool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: { rejectUnauthorized: false },
+  });
+
+  console.log("[Migrations] Pool created with SSL rejectUnauthorized=false");
+
   const db = drizzle(migrationPool);
 
   try {
-    console.log("[Migrations] Starting database migrations...");
     const migrationsPath = nodePath.join(process.cwd(), "drizzle");
-    
+    console.log("[Migrations] migrationsFolder =", migrationsPath);
     await migrate(db, { migrationsFolder: migrationsPath });
-    
-    console.log("[Migrations] SUCCESS: Database migrations applied successfully.");
+    console.log("[Migrations] Migrations completed OK");
   } catch (error) {
     console.error("[Migrations] ERROR: Migration failed:", error);
     throw error;

@@ -1,6 +1,6 @@
 import { eq, and, desc, sql, ilike } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
-import { createPgPool } from "./db/pool";
+import { Pool } from "pg";
 
 export { eq, and, desc, sql };
 import { nanoid } from "nanoid";
@@ -27,13 +27,16 @@ let _pool: any = null;
 
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
-    _pool = createPgPool();
+    _pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: { rejectUnauthorized: false },
+    });
     _db = drizzle(_pool);
+    console.log("[DB] Pool created with SSL rejectUnauthorized=false");
   }
   return _db;
 }
 
-// Re-implementing essential functions with Postgres syntax
 export async function createDocument(data: any) {
   const db = await getDb();
   return await db.insert(documents).values(data).returning();
@@ -157,7 +160,6 @@ export async function getAuditLogs(installationId: number) {
 
 export async function createDailyAssignment(data: any) {
   const db = await getDb();
-  // Simplified upsert logic for assignments
   return await db.insert(technicianDailyAssignments).values(data)
     .onConflictDoUpdate({
       target: [technicianDailyAssignments.technicianId, technicianDailyAssignments.installationId, technicianDailyAssignments.date],
@@ -209,7 +211,6 @@ export async function createNotification(data: any) {
 
 export async function getUnreadNotifications(technicianId: number) {
   const db = await getDb();
-  // Standard SQL logic
   return await db.select().from(notifications).where(and(
     eq(notifications.technicianId, technicianId),
     sql`read_at IS NULL`
