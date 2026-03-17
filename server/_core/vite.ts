@@ -52,10 +52,13 @@ export async function setupVite(app: Express, server: Server) {
 }
 
 export function serveStatic(app: Express) {
+  // In production, the bundle lives at ods_backend/index.cjs
+  // Vite builds the frontend to dist/ at the repo root
+  // So from ods_backend/, ".." gets us to repo root, then "dist" is the output dir
   const distPath =
     process.env.NODE_ENV === "development"
       ? nodePath.resolve(__dirname_resolved, "../..", "dist", "public")
-      : nodePath.resolve(__dirname_resolved, "..", "public"); // Case for bundle structure (ods_backend/ + public/)
+      : nodePath.resolve(__dirname_resolved, "..", "dist");
 
   console.log(`[Vite] Initializing static serving from: ${distPath}`);
 
