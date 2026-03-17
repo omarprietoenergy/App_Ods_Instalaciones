@@ -56,7 +56,7 @@ async function startServer() {
   console.log("[Server] Setting up local authentication...");
   registerLocalAuthRoutes(app);
 
-  // Version Endpoint (P0)
+  // Version Endpoint
   app.get("/api/version", (req, res) => {
     res.json({
       version: getAppVersion(),
@@ -112,7 +112,6 @@ async function startServer() {
   }
 
   // --- LISTEN LOGIC ---
-  // Detect Passenger (cPanel/LiteSpeed). Only real Passenger skips listen().
   const isPassenger = !!process.env.PASSENGER_APP_ENV ||
     !!process.env.PASSENGER_BASE_URI ||
     !!process.env.LSNODE_PORT ||
@@ -127,12 +126,10 @@ async function startServer() {
   console.log("  listenPort =", listenPort);
 
   if (isPassenger) {
-    // ONLY skip listen when Passenger is truly detected
     console.log("--------------------------------------------------");
     console.log("[Server] Passenger detected. Skipping server.listen().");
     console.log("--------------------------------------------------");
   } else {
-    // DO App Platform, Docker, local dev — always listen
     if (!globalThis.__ods_listening) {
       globalThis.__ods_listening = true;
       server.listen(listenPort, "0.0.0.0", () => {
@@ -144,7 +141,10 @@ async function startServer() {
   }
 }
 
-// INLINE runMigrations - no external import to avoid esbuild --packages=external stripping it
+// ==================== INLINE MODULES ====================
+// These are inlined to prevent esbuild --packages=external from stripping them
+
+// --- runMigrations ---
 import { drizzle as drizzleMigrate } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { Pool as PgPool } from "pg";
@@ -152,15 +152,14 @@ import nodePath2 from "node:path";
 
 async function runMigrations() {
   if (process.env.RUN_MIGRATIONS !== "true") {
-    console.log("[MIGRATIONS-REAL-PATH-HIT] RUN_MIGRATIONS is not true. Skipping.");
+    console.log("[Migrations] RUN_MIGRATIONS is not true. Skipping.");
     return;
   }
   if (!process.env.DATABASE_URL) {
-    console.error("[MIGRATIONS-REAL-PATH-HIT] CRITICAL: DATABASE_URL not set.");
+    console.error("[Migrations] CRITICAL: DATABASE_URL not set.");
     return;
   }
-  console.log("[MIGRATIONS-REAL-PATH-HIT] Starting migrations...");
-  console.log("[MIGRATIONS-REAL-SSL-ENABLED] Creating pool with rejectUnauthorized=false");
+  console.log("[Migrations] Starting migrations...");
   const migrationPool = new PgPool({
     connectionString: process.env.DATABASE_URL,
     ssl: { rejectUnauthorized: false },
@@ -168,40 +167,95 @@ async function runMigrations() {
   const migrationDb = drizzleMigrate(migrationPool);
   try {
     const migrationsPath = nodePath2.join(process.cwd(), "drizzle");
-    console.log("[MIGRATIONS-REAL-PATH-HIT] migrationsFolder =", migrationsPath);
-    console.log("[MIGRATIONS-REAL-PATH-HIT] migrationsSchema = public (avoid CREATE SCHEMA drizzle)");
+    console.log("[Migrations] migrationsFolder =", migrationsPath);
     await migrate(migrationDb, {
       migrationsFolder: migrationsPath,
       migrationsSchema: "public",
     });
-    console.log("[MIGRATIONS-REAL-PATH-HIT] Migrations completed OK");
+    console.log("[Migrations] Migrations completed OK");
   } catch (error: any) {
-    // If migrationsSchema option is not supported in this drizzle version,
-    // try without it but with a manual fallback
     if (error.message && error.message.includes("migrationsSchema")) {
-      console.log("[MIGRATIONS-REAL-PATH-HIT] migrationsSchema not supported, retrying without it...");
+      console.log("[Migrations] migrationsSchema not supported, retrying without...");
       try {
-        // Attempt to create the drizzle schema manually
         await migrationPool.query('CREATE SCHEMA IF NOT EXISTS "drizzle"');
-        console.log("[MIGRATIONS-REAL-PATH-HIT] Created schema 'drizzle' manually");
       } catch (schemaErr: any) {
-        console.warn("[MIGRATIONS-REAL-PATH-HIT] Could not create schema 'drizzle':", schemaErr.message);
-        console.warn("[MIGRATIONS-REAL-PATH-HIT] Will attempt migration without schema tracking");
+        console.warn("[Migrations] Could not create schema drizzle:", schemaErr.message);
       }
       const migrationsPath2 = nodePath2.join(process.cwd(), "drizzle");
       await migrate(migrationDb, { migrationsFolder: migrationsPath2 });
-      console.log("[MIGRATIONS-REAL-PATH-HIT] Migrations completed OK (fallback path)");
+      console.log("[Migrations] Migrations completed OK (fallback)");
     } else {
-      console.error("[MIGRATIONS-REAL-PATH-HIT] ERROR:", error);
+      console.error("[Migrations] ERROR:", error);
       throw error;
     }
   } finally {
     await migrationPool.end();
-    console.log("[MIGRATIONS-REAL-PATH-HIT] Pool closed.");
+    console.log("[Migrations] Pool closed.");
   }
 }
 
-// Autonomous Startup
+// --- seedAdmin ---
+import bcrypt from "bcryptjs";
+
+async function seedAdmin() {
+  if (process.env.STAGING_BOOTSTRAP_ADMIN !== "true") {
+    console.log("[Seed] STAGING_BOOTSTRAP_ADMIN is not true. Skipping.");
+    return;
+  }
+  if (!process.env.DATABASE_URL) {
+    console.error("[Seed] CRITICAL: DATABASE_URL not set.");
+    return;
+  }
+
+  const adminEmail = process.env.ADMIN_EMAIL;
+  const adminPassword = process.env.ADMIN_PASSWORD;
+  const adminName = process.env.ADMIN_NAME || "Admin";
+
+  if (!adminEmail || !adminPassword) {
+    console.error("[Seed] ADMIN_EMAIL and ADMIN_PASSWORD must be set when STAGING_BOOTSTRAP_ADMIN=true");
+    return;
+  }
+
+  console.log("[Seed] Checking for existing admin users...");
+
+  const seedPool = new PgPool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: { rejectUnauthorized: false },
+  });
+
+  try {
+    // Check if any admin exists
+    const result = await seedPool.query(
+      `SELECT id, email FROM users WHERE role = 'admin' LIMIT 1`
+    );
+
+    if (result.rows.length > 0) {
+      console.log(`[Seed] Admin already exists: ${result.rows[0].email} (id=${result.rows[0].id}). Skipping seed.`);
+      return;
+    }
+
+    // No admin exists — create one
+    console.log(`[Seed] No admin found. Creating admin: ${adminEmail}`);
+    const hashedPassword = await bcrypt.hash(adminPassword, 10);
+
+    await seedPool.query(
+      `INSERT INTO users (email, password, name, role, "loginMethod", "createdAt", "updatedAt", "lastSignedIn")
+       VALUES ($1, $2, $3, 'admin', 'local', now(), now(), now())
+       ON CONFLICT (email) DO UPDATE SET role = 'admin', password = $2, name = $3`,
+      [adminEmail, hashedPassword, adminName]
+    );
+
+    console.log(`[Seed] SUCCESS: Admin user created — ${adminEmail}`);
+  } catch (error: any) {
+    console.error("[Seed] ERROR:", error.message);
+    // Don't throw — seed failure should not prevent server from starting
+  } finally {
+    await seedPool.end();
+    console.log("[Seed] Pool closed.");
+  }
+}
+
+// ==================== STARTUP ====================
 
 declare global {
   var __ods_initialized: boolean | undefined;
@@ -212,11 +266,16 @@ if (!globalThis.__ods_initialized) {
   console.log("[Server] Initializing startup sequence...");
   globalThis.__ods_initialized = true;
 
-  runMigrations().then(() => {
-    startServer().catch(err => {
-      console.error("[Server] CRITICAL STARTUP ERROR:", err);
+  runMigrations()
+    .then(() => seedAdmin())
+    .then(() => {
+      startServer().catch(err => {
+        console.error("[Server] CRITICAL STARTUP ERROR:", err);
+      });
+    })
+    .catch(err => {
+      console.error("[Server] CRITICAL STARTUP ERROR (pre-server):", err);
     });
-  });
 } else {
   console.log("[Server] Already initialized, skipping startup sequence.");
 }
