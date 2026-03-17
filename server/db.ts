@@ -1,6 +1,6 @@
 import { eq, and, desc, sql, ilike } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
-import pg from "pg";
+import { createPgPool } from "./db/pool";
 
 export { eq, and, desc, sql };
 import { nanoid } from "nanoid";
@@ -27,10 +27,7 @@ let _pool: any = null;
 
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
-    _pool = new pg.Pool({
-      connectionString: process.env.DATABASE_URL,
-      ssl: { rejectUnauthorized: false }
-    });
+    _pool = createPgPool();
     _db = drizzle(_pool);
   }
   return _db;
@@ -258,4 +255,4 @@ export async function upsertUser(data: any) {
     .returning();
 }
 
-export { getUserByEmail as getUserByEmailDb }; // to avoid naming conflict with earlier imports if any
+export { getUserByEmail as getUserByEmailDb };
