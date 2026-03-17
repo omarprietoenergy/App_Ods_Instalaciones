@@ -22,7 +22,6 @@ function isPortAvailable(port: number): Promise<boolean> {
 // Helper to read version
 function getAppVersion() {
   try {
-    // Usually at the root in production container/zip
     const pkgPath = nodePath.resolve(process.cwd(), 'package.json');
     const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
     return pkg.version || '0.0.0';
@@ -65,6 +64,21 @@ async function startServer() {
     });
   });
 
+  // Health Endpoint
+  app.get("/health", async (req, res) => {
+    try {
+      const { getDb } = await import("../db");
+      const db = await getDb();
+      if (db) {
+        res.json({ status: "ok", db: "connected" });
+      } else {
+        res.status(503).json({ status: "error", db: "not connected" });
+      }
+    } catch (e: any) {
+      res.status(503).json({ status: "error", db: e.message });
+    }
+  });
+
   console.log("[Server] Setting up tRPC API...");
   app.use(
     "/api/trpc",
@@ -97,34 +111,35 @@ async function startServer() {
     serveStatic(app);
   }
 
-  const rawPort = process.env.PORT;
-  const preferredPort = rawPort && !isNaN(Number(rawPort)) ? parseInt(rawPort) : rawPort || 3000;
-  let port: number | string = preferredPort;
-
-  if (process.env.NODE_ENV !== "production" && typeof preferredPort === "number") {
-    port = await findAvailablePort(preferredPort);
-  }
-
-  console.log(`[Server] Attempting to listen on port: ${port}`);
-
+  // --- LISTEN LOGIC ---
+  // Detect Passenger (cPanel/LiteSpeed). Only real Passenger skips listen().
   const isPassenger = !!process.env.PASSENGER_APP_ENV ||
     !!process.env.PASSENGER_BASE_URI ||
     !!process.env.LSNODE_PORT ||
     (!!process.env.PORT && process.env.PORT.startsWith("/"));
 
-  if (process.env.NODE_ENV === "production" || isPassenger) {
+  const listenPort = Number(process.env.PORT || 3000);
+
+  console.log("[Server] Listen decision:");
+  console.log("  isPassenger =", isPassenger);
+  console.log("  NODE_ENV =", process.env.NODE_ENV);
+  console.log("  PORT =", process.env.PORT);
+  console.log("  listenPort =", listenPort);
+
+  if (isPassenger) {
+    // ONLY skip listen when Passenger is truly detected
     console.log("--------------------------------------------------");
-    console.log("[Server] Production / Passenger detected.");
-    console.log("[Server] Skipping manual server.listen() to allow Passenger to handle the socket.");
+    console.log("[Server] Passenger detected. Skipping server.listen().");
     console.log("--------------------------------------------------");
   } else {
+    // DO App Platform, Docker, local dev — always listen
     if (!globalThis.__ods_listening) {
       globalThis.__ods_listening = true;
-      server.listen(port, () => {
-        console.log(`[Server] SUCCESS: Running on port ${port} (Env: ${process.env.NODE_ENV || 'production'})`);
+      server.listen(listenPort, "0.0.0.0", () => {
+        console.log(`[Server] SUCCESS: Listening on 0.0.0.0:${listenPort} (Env: ${process.env.NODE_ENV || 'not set'})`);
       });
     } else {
-      console.log("[Server] Already listening (idempotency check).");
+      console.log("[Server] Already listening (idempotency guard).");
     }
   }
 }
@@ -154,11 +169,32 @@ async function runMigrations() {
   try {
     const migrationsPath = nodePath2.join(process.cwd(), "drizzle");
     console.log("[MIGRATIONS-REAL-PATH-HIT] migrationsFolder =", migrationsPath);
-    await migrate(migrationDb, { migrationsFolder: migrationsPath });
+    console.log("[MIGRATIONS-REAL-PATH-HIT] migrationsSchema = public (avoid CREATE SCHEMA drizzle)");
+    await migrate(migrationDb, {
+      migrationsFolder: migrationsPath,
+      migrationsSchema: "public",
+    });
     console.log("[MIGRATIONS-REAL-PATH-HIT] Migrations completed OK");
-  } catch (error) {
-    console.error("[MIGRATIONS-REAL-PATH-HIT] ERROR:", error);
-    throw error;
+  } catch (error: any) {
+    // If migrationsSchema option is not supported in this drizzle version,
+    // try without it but with a manual fallback
+    if (error.message && error.message.includes("migrationsSchema")) {
+      console.log("[MIGRATIONS-REAL-PATH-HIT] migrationsSchema not supported, retrying without it...");
+      try {
+        // Attempt to create the drizzle schema manually
+        await migrationPool.query('CREATE SCHEMA IF NOT EXISTS "drizzle"');
+        console.log("[MIGRATIONS-REAL-PATH-HIT] Created schema 'drizzle' manually");
+      } catch (schemaErr: any) {
+        console.warn("[MIGRATIONS-REAL-PATH-HIT] Could not create schema 'drizzle':", schemaErr.message);
+        console.warn("[MIGRATIONS-REAL-PATH-HIT] Will attempt migration without schema tracking");
+      }
+      const migrationsPath2 = nodePath2.join(process.cwd(), "drizzle");
+      await migrate(migrationDb, { migrationsFolder: migrationsPath2 });
+      console.log("[MIGRATIONS-REAL-PATH-HIT] Migrations completed OK (fallback path)");
+    } else {
+      console.error("[MIGRATIONS-REAL-PATH-HIT] ERROR:", error);
+      throw error;
+    }
   } finally {
     await migrationPool.end();
     console.log("[MIGRATIONS-REAL-PATH-HIT] Pool closed.");
