@@ -8,6 +8,7 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic } from "./vite";
 import * as nodePath from "node:path";
+import * as fs from "node:fs";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -19,7 +20,7 @@ function isPortAvailable(port: number): Promise<boolean> {
   });
 }
 
-// Helper to read version
+// Helper to read version and build info
 function getAppVersion() {
   try {
     const pkgPath = nodePath.resolve(process.cwd(), 'package.json');
@@ -29,7 +30,6 @@ function getAppVersion() {
     return 'dev';
   }
 }
-import * as fs from 'node:fs';
 
 async function findAvailablePort(startPort: number = 3000): Promise<number> {
   for (let port = startPort; port < startPort + 20; port++) {
@@ -44,9 +44,6 @@ const app = express();
 const server = createServer(app);
 
 async function startServer() {
-  const __dirname_resolved = typeof __dirname !== 'undefined'
-    ? __dirname
-    : process.cwd();
   console.log("[Server] Configuring middleware...");
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
@@ -56,21 +53,34 @@ async function startServer() {
   console.log("[Server] Setting up local authentication...");
   registerLocalAuthRoutes(app);
 
-  // Version Endpoint
+  // --- Observability endpoints ---
+
+  // Version / Build ID endpoint
   app.get("/api/version", (req, res) => {
     res.json({
       version: getAppVersion(),
-      timestamp: new Date().toISOString()
+      buildId: process.env.BUILD_ID || process.env.COMMIT_SHA || "unknown",
+      env: process.env.NODE_ENV || "not set",
+      timestamp: new Date().toISOString(),
+    });
+  });
+  // Alias
+  app.get("/api/__version", (req, res) => {
+    res.json({
+      version: getAppVersion(),
+      buildId: process.env.BUILD_ID || process.env.COMMIT_SHA || "unknown",
+      env: process.env.NODE_ENV || "not set",
+      timestamp: new Date().toISOString(),
     });
   });
 
-  // Health Endpoint
+  // Health endpoint with real DB ping
   app.get("/health", async (req, res) => {
     try {
       const { getDb } = await import("../db");
       const db = await getDb();
       if (db) {
-        res.json({ status: "ok", db: "connected" });
+        res.json({ status: "ok", db: "connected", version: getAppVersion() });
       } else {
         res.status(503).json({ status: "error", db: "not connected" });
       }
@@ -142,13 +152,13 @@ async function startServer() {
 }
 
 // ==================== INLINE MODULES ====================
-// These are inlined to prevent esbuild --packages=external from stripping them
-
-// --- runMigrations ---
+// runMigrations is kept inline to prevent esbuild --packages=external from stripping it.
+// The standalone scripts/migrate.ts is the preferred way to run migrations.
 import { drizzle as drizzleMigrate } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { Pool as PgPool } from "pg";
 import nodePath2 from "node:path";
+import bcrypt from "bcryptjs";
 
 async function runMigrations() {
   if (process.env.RUN_MIGRATIONS !== "true") {
@@ -174,28 +184,14 @@ async function runMigrations() {
     });
     console.log("[Migrations] Migrations completed OK");
   } catch (error: any) {
-    if (error.message && error.message.includes("migrationsSchema")) {
-      console.log("[Migrations] migrationsSchema not supported, retrying without...");
-      try {
-        await migrationPool.query('CREATE SCHEMA IF NOT EXISTS "drizzle"');
-      } catch (schemaErr: any) {
-        console.warn("[Migrations] Could not create schema drizzle:", schemaErr.message);
-      }
-      const migrationsPath2 = nodePath2.join(process.cwd(), "drizzle");
-      await migrate(migrationDb, { migrationsFolder: migrationsPath2 });
-      console.log("[Migrations] Migrations completed OK (fallback)");
-    } else {
-      console.error("[Migrations] ERROR:", error);
-      throw error;
-    }
+    console.error("[Migrations] ERROR:", error.message);
+    // Don't throw — migration failure should not prevent server from starting
+    // when RUN_MIGRATIONS is set. Use scripts/migrate.ts for strict mode.
   } finally {
     await migrationPool.end();
     console.log("[Migrations] Pool closed.");
   }
 }
-
-// --- seedAdmin ---
-import bcrypt from "bcryptjs";
 
 async function seedAdmin() {
   if (process.env.STAGING_BOOTSTRAP_ADMIN !== "true") {
@@ -206,49 +202,37 @@ async function seedAdmin() {
     console.error("[Seed] CRITICAL: DATABASE_URL not set.");
     return;
   }
-
   const adminEmail = process.env.ADMIN_EMAIL;
   const adminPassword = process.env.ADMIN_PASSWORD;
   const adminName = process.env.ADMIN_NAME || "Admin";
-
   if (!adminEmail || !adminPassword) {
-    console.error("[Seed] ADMIN_EMAIL and ADMIN_PASSWORD must be set when STAGING_BOOTSTRAP_ADMIN=true");
+    console.error("[Seed] ADMIN_EMAIL and ADMIN_PASSWORD must be set.");
     return;
   }
-
   console.log("[Seed] Checking for existing admin users...");
-
   const seedPool = new PgPool({
     connectionString: process.env.DATABASE_URL,
     ssl: { rejectUnauthorized: false },
   });
-
   try {
-    // Check if any admin exists
     const result = await seedPool.query(
       `SELECT id, email FROM users WHERE role = 'admin' LIMIT 1`
     );
-
     if (result.rows.length > 0) {
-      console.log(`[Seed] Admin already exists: ${result.rows[0].email} (id=${result.rows[0].id}). Skipping seed.`);
+      console.log(`[Seed] Admin already exists: ${result.rows[0].email}. Skipping.`);
       return;
     }
-
-    // No admin exists — create one
-    console.log(`[Seed] No admin found. Creating admin: ${adminEmail}`);
+    console.log(`[Seed] Creating admin: ${adminEmail}`);
     const hashedPassword = await bcrypt.hash(adminPassword, 10);
-
     await seedPool.query(
       `INSERT INTO users (email, password, name, role, "loginMethod", "createdAt", "updatedAt", "lastSignedIn")
        VALUES ($1, $2, $3, 'admin', 'local', now(), now(), now())
        ON CONFLICT (email) DO UPDATE SET role = 'admin', password = $2, name = $3`,
       [adminEmail, hashedPassword, adminName]
     );
-
-    console.log(`[Seed] SUCCESS: Admin user created — ${adminEmail}`);
+    console.log(`[Seed] SUCCESS: Admin created — ${adminEmail}`);
   } catch (error: any) {
     console.error("[Seed] ERROR:", error.message);
-    // Don't throw — seed failure should not prevent server from starting
   } finally {
     await seedPool.end();
     console.log("[Seed] Pool closed.");
