@@ -245,6 +245,112 @@ export async function getUserById(id: number) {
   return res[0];
 }
 
+export async function createInstallation(data: any) {
+  const database = await getDb();
+  return await database.insert(installations).values(data).returning();
+}
+
+export async function updateInstallation(id: number, data: any) {
+  const database = await getDb();
+  await database.update(installations).set(data).where(eq(installations.id, id));
+}
+
+export async function deleteInstallation(id: number) {
+  const database = await getDb();
+  await database.delete(installations).where(eq(installations.id, id));
+}
+
+export async function getInstallationById(id: number) {
+  const database = await getDb();
+  const res = await database.select().from(installations).where(eq(installations.id, id)).limit(1);
+  return res[0];
+}
+
+export async function getInstallationsByTechnician(technicianId: number) {
+  const database = await getDb();
+  // Simplified union: assignedTechnicianIds includes tech OR has daily assignment
+  // Robust check for assignedTechnicianIds (JSONB)
+  const results = await database.select().from(installations).where(
+    sql`(${installations.assignedTechnicianIds}::jsonb ? ${String(technicianId)}) OR EXISTS (
+      SELECT 1 FROM ${technicianDailyAssignments}
+      WHERE ${technicianDailyAssignments.installationId} = ${installations.id}
+      AND ${technicianDailyAssignments.technicianId} = ${technicianId}
+    )`
+  ).orderBy(desc(installations.createdAt));
+  return results;
+}
+
+export async function getInstallationsByTechnicianToday(technicianId: number) {
+  const database = await getDb();
+  const todayStr = new Date().toISOString().split('T')[0];
+  const results = await database.select({
+    installation: installations
+  })
+    .from(technicianDailyAssignments)
+    .innerJoin(installations, eq(technicianDailyAssignments.installationId, installations.id))
+    .where(and(
+      eq(technicianDailyAssignments.technicianId, technicianId),
+      eq(technicianDailyAssignments.date, todayStr)
+    ))
+    .orderBy(desc(installations.createdAt));
+  
+  return results.map(r => r.installation);
+}
+
+export async function getAssignmentsForTechnician(technicianId: number, date: any) {
+  const db = await getDb();
+  const dateStr = date instanceof Date ? date.toISOString().split('T')[0] : date;
+  
+  return await db.select({
+    assignment: technicianDailyAssignments,
+    installation: installations
+  })
+    .from(technicianDailyAssignments)
+    .leftJoin(installations, eq(technicianDailyAssignments.installationId, installations.id))
+    .where(and(
+      eq(technicianDailyAssignments.technicianId, technicianId),
+      eq(technicianDailyAssignments.date, dateStr)
+    ));
+}
+
+export async function ensureDailyPlan(technicianId: number, date: any) {
+  const db = await getDb();
+  const dateStr = date instanceof Date ? date.toISOString().split('T')[0] : date;
+  
+  const existing = await db.select().from(technicianDailyAssignments).where(and(
+    eq(technicianDailyAssignments.technicianId, technicianId),
+    eq(technicianDailyAssignments.date, dateStr)
+  )).limit(1);
+  
+  if (existing.length === 0) {
+    // If no plan today, copy from last day (optional but often requested in this app)
+    // For now, just ensure it returns something or does nothing if empty
+    console.log(`[DB] No daily plan found for tech=${technicianId} date=${dateStr}`);
+  }
+}
+
+export async function autoPauseTechnicianActivities(technicianId: number) {
+  const db = await getDb();
+  const todayStr = new Date().toISOString().split('T')[0];
+  const now = new Date();
+  
+  const activeAssignments = await db.select().from(technicianDailyAssignments).where(and(
+    eq(technicianDailyAssignments.technicianId, technicianId),
+    eq(technicianDailyAssignments.status, "working")
+  ));
+  
+  for (const assign of activeAssignments) {
+    const diff = assign.activeStartTime ? Math.floor((now.getTime() - assign.activeStartTime.getTime()) / 60000) : 0;
+    await db.update(technicianDailyAssignments)
+      .set({
+        status: 'paused',
+        activeStartTime: null,
+        totalMinutes: (assign.totalMinutes || 0) + diff
+      })
+      .where(eq(technicianDailyAssignments.id, assign.id));
+  }
+}
+
 export async function upsertUser(data: any) {
   const db = await getDb();
   return await db.insert(users)
