@@ -30,20 +30,17 @@ async function main() {
   });
 
   try {
-    // Check if any admin exists
     const result = await pool.query(
-      `SELECT id, email FROM users WHERE role = 'admin' LIMIT 1`
+      `SELECT id, email FROM users WHERE email = $1 LIMIT 1`,
+      [adminEmail]
     );
 
     if (result.rows.length > 0) {
-      console.log(
-        `[db:seed] Admin already exists: ${result.rows[0].email} (id=${result.rows[0].id}). Skipping.`
-      );
-      return;
+      console.log(`[db:seed] Admin ${adminEmail} already exists. Updating password/name...`);
+    } else {
+      console.log(`[db:seed] Creating admin: ${adminEmail}`);
     }
 
-    // Create admin
-    console.log(`[db:seed] Creating admin: ${adminEmail}`);
     const hashedPassword = await bcrypt.hash(adminPassword, 10);
 
     await pool.query(
@@ -53,7 +50,7 @@ async function main() {
       [adminEmail, hashedPassword, adminName]
     );
 
-    console.log(`[db:seed] ✅ Admin user created: ${adminEmail}`);
+    console.log(`[db:seed] ✅ Admin user processed: ${adminEmail}`);
   } catch (error: any) {
     console.error("[db:seed] ❌ Seed failed:", error.message);
     process.exit(1);

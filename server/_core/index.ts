@@ -6,7 +6,6 @@ import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerLocalAuthRoutes } from "./local-auth";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
-import { serveStatic } from "./vite";
 import * as nodePath from "node:path";
 import * as fs from "node:fs";
 
@@ -45,6 +44,42 @@ const server = createServer(app);
 
 async function startServer() {
   console.log("[Server] Configuring middleware...");
+  
+  // Mandatory S3 check for production/staging
+  if (process.env.NODE_ENV !== "development") {
+    if (process.env.STORAGE_TYPE === "local" || !process.env.STORAGE_TYPE) {
+      console.error("[Server] CRITICAL: STORAGE_TYPE is 'local' or unset out of development.");
+      throw new Error("Spaces (S3) must be mandatory outside development. Set STORAGE_TYPE=s3 and provide S3 credentials.");
+    }
+  }
+
+  // Cross-Origin Resource Sharing (CORS) Configuration
+  const allowedOrigins = [
+    "http://localhost:5173", 
+    "http://localhost:3000",
+    "https://staging.odsenergy.net",
+    "https://app.odsenergy.net"
+  ];
+  if (process.env.FRONTEND_URL) {
+      allowedOrigins.push(...process.env.FRONTEND_URL.split(','));
+  }
+
+  app.use((req, res, next) => {
+    const origin = req.headers.origin;
+    if (origin && allowedOrigins.includes(origin)) {
+      res.header("Access-Control-Allow-Origin", origin);
+      res.header("Access-Control-Allow-Credentials", "true");
+      res.header("Access-Control-Allow-Methods", "GET,PUT,POST,DELETE,OPTIONS");
+      res.header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Cookie");
+    }
+    
+    if (req.method === "OPTIONS") {
+      res.sendStatus(200);
+      return;
+    }
+    next();
+  });
+
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
@@ -56,11 +91,13 @@ async function startServer() {
   // --- Observability endpoints ---
 
   // Version / Build ID endpoint
+  const envLabel = process.env.APP_ENV || process.env.NODE_ENV || "not set";
+  
   app.get("/api/version", (req, res) => {
     res.json({
       version: getAppVersion(),
       buildId: process.env.BUILD_ID || process.env.COMMIT_SHA || "unknown",
-      env: process.env.NODE_ENV || "not set",
+      env: envLabel,
       timestamp: new Date().toISOString(),
     });
   });
@@ -69,7 +106,7 @@ async function startServer() {
     res.json({
       version: getAppVersion(),
       buildId: process.env.BUILD_ID || process.env.COMMIT_SHA || "unknown",
-      env: process.env.NODE_ENV || "not set",
+      env: envLabel,
       timestamp: new Date().toISOString(),
     });
   });
@@ -116,9 +153,21 @@ async function startServer() {
       serveStatic(app);
     }
   } else {
-    console.log("[Server] Environment: production. Setting up static serving...");
-    const { serveStatic } = await import("./vite");
-    serveStatic(app);
+    console.log("[Server] Environment: production.");
+    if (process.env.SERVE_STATIC === "true") {
+      console.log("[Server] SERVE_STATIC is true. Setting up static serving...");
+      const { serveStatic } = await import("./vite");
+      serveStatic(app);
+    } else {
+      console.log("[Server] SERVE_STATIC is false. Running in API-only mode.");
+      app.get("/", (req, res) => {
+        res.status(200).send("ODS Energy API — v" + getAppVersion());
+      });
+      // Return 404 for unknown routes to avoid SPA fallback
+      app.use((req, res) => {
+        res.status(404).json({ error: "Not Found (API Only Mode)" });
+      });
+    }
   }
 
   // --- LISTEN LOGIC ---
@@ -132,6 +181,7 @@ async function startServer() {
   console.log("[Server] Listen decision:");
   console.log("  isPassenger =", isPassenger);
   console.log("  NODE_ENV =", process.env.NODE_ENV);
+  console.log("  APP_ENV =", process.env.APP_ENV);
   console.log("  PORT =", process.env.PORT);
   console.log("  listenPort =", listenPort);
 
@@ -143,7 +193,7 @@ async function startServer() {
     if (!globalThis.__ods_listening) {
       globalThis.__ods_listening = true;
       server.listen(listenPort, "0.0.0.0", () => {
-        console.log(`[Server] SUCCESS: Listening on 0.0.0.0:${listenPort} (Env: ${process.env.NODE_ENV || 'not set'})`);
+        console.log(`[Server] SUCCESS: Listening on 0.0.0.0:${listenPort} (Env: ${envLabel})`);
       });
     } else {
       console.log("[Server] Already listening (idempotency guard).");
@@ -216,13 +266,14 @@ async function seedAdmin() {
   });
   try {
     const result = await seedPool.query(
-      `SELECT id, email FROM users WHERE role = 'admin' LIMIT 1`
+      `SELECT id, email FROM users WHERE email = $1 LIMIT 1`,
+      [adminEmail]
     );
     if (result.rows.length > 0) {
-      console.log(`[Seed] Admin already exists: ${result.rows[0].email}. Skipping.`);
-      return;
+      console.log(`[Seed] Admin ${adminEmail} already exists. Updating password/name...`);
+    } else {
+      console.log(`[Seed] Creating admin: ${adminEmail}`);
     }
-    console.log(`[Seed] Creating admin: ${adminEmail}`);
     const hashedPassword = await bcrypt.hash(adminPassword, 10);
     await seedPool.query(
       `INSERT INTO users (email, password, name, role, "loginMethod", "createdAt", "updatedAt", "lastSignedIn")
@@ -230,7 +281,7 @@ async function seedAdmin() {
        ON CONFLICT (email) DO UPDATE SET role = 'admin', password = $2, name = $3`,
       [adminEmail, hashedPassword, adminName]
     );
-    console.log(`[Seed] SUCCESS: Admin created — ${adminEmail}`);
+    console.log(`[Seed] SUCCESS: Admin processed — ${adminEmail}`);
   } catch (error: any) {
     console.error("[Seed] ERROR:", error.message);
   } finally {
