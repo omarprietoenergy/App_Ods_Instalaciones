@@ -36,6 +36,7 @@ export async function setupVite(app: Express, server: Server) {
         "index.html"
       );
 
+      // always reload the index.html file from disk incase it changes
       let template = await fs.promises.readFile(clientTemplate, "utf-8");
       template = template.replace(
         `src="/src/main.tsx"`,
@@ -54,7 +55,7 @@ export function serveStatic(app: Express) {
   const distPath =
     process.env.NODE_ENV === "development"
       ? nodePath.resolve(__dirname_resolved, "../..", "dist", "public")
-      : nodePath.resolve(__dirname_resolved, "..", "dist");
+      : nodePath.resolve(process.cwd(), "dist");
 
   console.log(`[Vite] Initializing static serving from: ${distPath}`);
 
@@ -67,12 +68,17 @@ export function serveStatic(app: Express) {
   app.use(express.static(distPath, { index: false }));
 
   // SPA fallback: serve index.html for client-side routes
-  // BUT never intercept API routes or health checks — those must reach Express handlers
+  // BUT never intercept API routes or health checks
   app.use("*", (req, res, next) => {
     if (req.path.startsWith("/api/") || req.path.startsWith("/health")) {
       return next();
     }
     console.log(`[Vite] SPA fallback for ${req.originalUrl} -> index.html`);
-    res.sendFile(nodePath.resolve(distPath, "index.html"));
+    const indexPath = nodePath.resolve(distPath, "index.html");
+    if (fs.existsSync(indexPath)) {
+      res.sendFile(indexPath);
+    } else {
+      res.status(404).send("Not Found (Missing index.html)");
+    }
   });
 }

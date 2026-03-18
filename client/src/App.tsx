@@ -21,6 +21,8 @@ function Router() {
   return (
     <Switch>
       <Route path={"/"} component={Home} />
+      <Route path={"/login"} component={Home} />
+      <Route path={"/dashboard"} component={Home} />
       <Route path={"/installations"} component={Installations} />
       <Route path={"/installations/:id"} component={InstallationDetail} />
       <Route path={"/installations/:id/materials"} component={InstallationMaterials} />
