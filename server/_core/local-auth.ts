@@ -9,13 +9,15 @@ import { sdk } from "./sdk";
 import { COOKIE_NAME, ONE_YEAR_MS } from "../../shared/const";
 
 export function registerLocalAuthRoutes(app: Express) {
+  const isProd = process.env.NODE_ENV === "production";
   const sessionSettings: session.SessionOptions = {
     secret: process.env.SESSION_SECRET || "ods-energy-secret",
     resave: false,
     saveUninitialized: false,
     cookie: {
-      secure: process.env.NODE_ENV === "production",
+      secure: isProd,
       maxAge: 24 * 60 * 60 * 1000, // 24 hours
+      sameSite: isProd ? "none" : "lax",
     },
   };
 
@@ -102,8 +104,8 @@ export function registerLocalAuthRoutes(app: Express) {
 
           const cookieOpts: any = {
             httpOnly: true,
-            secure: process.env.NODE_ENV === "production",
-            sameSite: process.env.NODE_ENV === "production" ? "none" as const : "lax" as const,
+            secure: isProd,
+            sameSite: isProd ? "none" as const : "lax" as const,
             maxAge: ONE_YEAR_MS,
             path: "/",
           };
@@ -127,7 +129,7 @@ export function registerLocalAuthRoutes(app: Express) {
 
   // Logout handler — clear both Passport session and JWT cookie
   const logoutHandler = (req: any, res: any, next: any) => {
-    res.clearCookie(COOKIE_NAME, { path: "/" });
+    res.clearCookie(COOKIE_NAME, { path: "/", secure: isProd, sameSite: isProd ? "none" : "lax" });
     req.logout((err: any) => {
       if (err) return next(err);
       res.sendStatus(200);

@@ -19,7 +19,8 @@ export function LoginContainer() {
         setError("");
         setLoading(true);
 
-        const endpoint = isRegistering ? "/api/auth/register" : "/api/auth/login";
+        const API_URL = import.meta.env.VITE_API_URL || "";
+        const endpoint = isRegistering ? `${API_URL}/api/auth/register` : `${API_URL}/api/auth/login`;
         const payload = isRegistering ? { name, email, password } : { email, password };
 
         try {
@@ -27,6 +28,7 @@ export function LoginContainer() {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(payload),
+                credentials: "include",
             });
 
             const data = await res.json();

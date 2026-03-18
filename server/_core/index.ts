@@ -6,7 +6,6 @@ import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerLocalAuthRoutes } from "./local-auth";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
-import { serveStatic } from "./vite";
 import * as nodePath from "node:path";
 import * as fs from "node:fs";
 
@@ -45,6 +44,42 @@ const server = createServer(app);
 
 async function startServer() {
   console.log("[Server] Configuring middleware...");
+  
+  // Mandatory S3 check for production/staging
+  if (process.env.NODE_ENV !== "development") {
+    if (process.env.STORAGE_TYPE === "local" || !process.env.STORAGE_TYPE) {
+      console.error("[Server] CRITICAL: STORAGE_TYPE is 'local' or unset out of development.");
+      throw new Error("Spaces (S3) must be mandatory outside development. Set STORAGE_TYPE=s3 and provide S3 credentials.");
+    }
+  }
+
+  // Cross-Origin Resource Sharing (CORS) Configuration
+  const allowedOrigins = [
+    "http://localhost:5173", 
+    "http://localhost:3000",
+    "https://staging.odsenergy.net",
+    "https://app.odsenergy.net"
+  ];
+  if (process.env.FRONTEND_URL) {
+      allowedOrigins.push(...process.env.FRONTEND_URL.split(','));
+  }
+
+  app.use((req, res, next) => {
+    const origin = req.headers.origin;
+    if (origin && allowedOrigins.includes(origin)) {
+      res.header("Access-Control-Allow-Origin", origin);
+      res.header("Access-Control-Allow-Credentials", "true");
+      res.header("Access-Control-Allow-Methods", "GET,PUT,POST,DELETE,OPTIONS");
+      res.header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Cookie");
+    }
+    
+    if (req.method === "OPTIONS") {
+      res.sendStatus(200);
+      return;
+    }
+    next();
+  });
+
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
@@ -116,9 +151,21 @@ async function startServer() {
       serveStatic(app);
     }
   } else {
-    console.log("[Server] Environment: production. Setting up static serving...");
-    const { serveStatic } = await import("./vite");
-    serveStatic(app);
+    console.log("[Server] Environment: production.");
+    if (process.env.SERVE_STATIC === "true") {
+      console.log("[Server] SERVE_STATIC is true. Setting up static serving...");
+      const { serveStatic } = await import("./vite");
+      serveStatic(app);
+    } else {
+      console.log("[Server] SERVE_STATIC is false. Running in API-only mode.");
+      app.get("/", (req, res) => {
+        res.status(200).send("ODS Energy API — v" + getAppVersion());
+      });
+      // Return 404 for unknown routes to avoid SPA fallback
+      app.use((req, res) => {
+        res.status(404).json({ error: "Not Found (API Only Mode)" });
+      });
+    }
   }
 
   // --- LISTEN LOGIC ---
