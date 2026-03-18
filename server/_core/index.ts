@@ -91,11 +91,13 @@ async function startServer() {
   // --- Observability endpoints ---
 
   // Version / Build ID endpoint
+  const envLabel = process.env.APP_ENV || process.env.NODE_ENV || "not set";
+  
   app.get("/api/version", (req, res) => {
     res.json({
       version: getAppVersion(),
       buildId: process.env.BUILD_ID || process.env.COMMIT_SHA || "unknown",
-      env: process.env.NODE_ENV || "not set",
+      env: envLabel,
       timestamp: new Date().toISOString(),
     });
   });
@@ -104,7 +106,7 @@ async function startServer() {
     res.json({
       version: getAppVersion(),
       buildId: process.env.BUILD_ID || process.env.COMMIT_SHA || "unknown",
-      env: process.env.NODE_ENV || "not set",
+      env: envLabel,
       timestamp: new Date().toISOString(),
     });
   });
@@ -179,6 +181,7 @@ async function startServer() {
   console.log("[Server] Listen decision:");
   console.log("  isPassenger =", isPassenger);
   console.log("  NODE_ENV =", process.env.NODE_ENV);
+  console.log("  APP_ENV =", process.env.APP_ENV);
   console.log("  PORT =", process.env.PORT);
   console.log("  listenPort =", listenPort);
 
@@ -190,7 +193,7 @@ async function startServer() {
     if (!globalThis.__ods_listening) {
       globalThis.__ods_listening = true;
       server.listen(listenPort, "0.0.0.0", () => {
-        console.log(`[Server] SUCCESS: Listening on 0.0.0.0:${listenPort} (Env: ${process.env.NODE_ENV || 'not set'})`);
+        console.log(`[Server] SUCCESS: Listening on 0.0.0.0:${listenPort} (Env: ${envLabel})`);
       });
     } else {
       console.log("[Server] Already listening (idempotency guard).");
@@ -263,13 +266,14 @@ async function seedAdmin() {
   });
   try {
     const result = await seedPool.query(
-      `SELECT id, email FROM users WHERE role = 'admin' LIMIT 1`
+      `SELECT id, email FROM users WHERE email = $1 LIMIT 1`,
+      [adminEmail]
     );
     if (result.rows.length > 0) {
-      console.log(`[Seed] Admin already exists: ${result.rows[0].email}. Skipping.`);
-      return;
+      console.log(`[Seed] Admin ${adminEmail} already exists. Updating password/name...`);
+    } else {
+      console.log(`[Seed] Creating admin: ${adminEmail}`);
     }
-    console.log(`[Seed] Creating admin: ${adminEmail}`);
     const hashedPassword = await bcrypt.hash(adminPassword, 10);
     await seedPool.query(
       `INSERT INTO users (email, password, name, role, "loginMethod", "createdAt", "updatedAt", "lastSignedIn")
@@ -277,7 +281,7 @@ async function seedAdmin() {
        ON CONFLICT (email) DO UPDATE SET role = 'admin', password = $2, name = $3`,
       [adminEmail, hashedPassword, adminName]
     );
-    console.log(`[Seed] SUCCESS: Admin created — ${adminEmail}`);
+    console.log(`[Seed] SUCCESS: Admin processed — ${adminEmail}`);
   } catch (error: any) {
     console.error("[Seed] ERROR:", error.message);
   } finally {
