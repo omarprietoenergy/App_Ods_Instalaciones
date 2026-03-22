@@ -1,0 +1,46 @@
+name: AI-CTO Verify Output v0.2
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Run in dry-run mode (no DB inserts)'
+        type: boolean
+        required: true
+        default: true
+
+jobs:
+  run-collector:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout staging-clean branch
+        uses: actions/checkout@v4
+        with:
+          ref: staging-clean
+          
+      - name: Install pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+          
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+          
+      - name: Install dependencies
+        run: pnpm install
+        
+      - name: Run AI-CTO v0.2 Collector
+        env:
+          ODS_SOURCE_DATABASE_URL: ${{ secrets.ODS_SOURCE_DATABASE_URL }}
+          AI_CTO_DATABASE_URL: ${{ secrets.AI_CTO_DATABASE_URL }}
+          AI_CTO_TIMEZONE: Europe/Madrid
+        run: |
+          if [ "${{ github.event.inputs.dry_run }}" == "true" ]; then
+            pnpm exec tsx scripts/ai-cto/collector-v0.2.ts --dry-run
+          else
+            pnpm exec tsx scripts/ai-cto/collector-v0.2.ts
+          fi
