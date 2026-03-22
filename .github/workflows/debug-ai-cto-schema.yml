@@ -1,0 +1,24 @@
+name: Debug AI-CTO Schema
+on:
+  workflow_dispatch:
+
+jobs:
+  inspect-schema:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Inspect ai_cto schema
+        env:
+          AI_CTO_DATABASE_URL: ${{ secrets.AI_CTO_DATABASE_URL }}
+        run: |
+          psql "$AI_CTO_DATABASE_URL" -c "
+          SELECT 
+            table_name, 
+            ordinal_position, 
+            column_name, 
+            data_type, 
+            is_nullable
+          FROM information_schema.columns 
+          WHERE table_schema = 'ai_cto' 
+            AND table_name IN ('weekly_reports', 'task_metrics', 'innovation_proposals', 'experiments')
+          ORDER BY table_name, ordinal_position;
+          "
