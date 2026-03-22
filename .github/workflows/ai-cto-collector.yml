@@ -1,0 +1,43 @@
+name: AI-CTO Collector v0.1
+
+on:
+  schedule:
+    # Ejecutar todos los días a las 02:00 AM (UTC) - 04:00 AM Madrid aprox.
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Ejecutar en modo DRY-RUN (sin escritura en AI-CTO)'
+        type: boolean
+        required: true
+        default: true
+
+jobs:
+  run-collector:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # Fila crítica: el script existe en staging-clean
+          ref: staging-clean
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install pnpm
+        run: npm install -g pnpm@10.4.1
+
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run AI-CTO Collector
+        env:
+          ODS_SOURCE_DATABASE_URL: ${{ secrets.ODS_SOURCE_DATABASE_URL }}
+          AI_CTO_DATABASE_URL: ${{ secrets.AI_CTO_DATABASE_URL }}
+          AI_CTO_TIMEZONE: ${{ secrets.AI_CTO_TIMEZONE }}
+          AI_CTO_COLLECTOR_DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+        run: pnpm exec tsx scripts/ai-cto/collector-v0.1.ts
