@@ -1,0 +1,68 @@
+name: AI-CTO Verify Output
+on:
+  workflow_dispatch:
+
+jobs:
+  verify-data:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install pg library
+        run: npm install pg
+
+      - name: Execute Verification SQL
+        env:
+          AI_CTO_DATABASE_URL: ${{ secrets.AI_CTO_DATABASE_URL }}
+        run: |
+          node -e "
+          const { Client } = require('pg');
+          async function run() {
+            const client = new Client({
+              connectionString: process.env.AI_CTO_DATABASE_URL,
+              ssl: { rejectUnauthorized: false }
+            });
+            await client.connect();
+            
+            console.log('--- 1. ÚLTIMOS SNAPSHOTS EN task_metrics ---');
+            const res1 = await client.query(\`
+              SELECT id, created_at, task_type, source_channel, requester, primary_agent, final_agent, success, notes
+              FROM ai_cto.task_metrics
+              WHERE task_type = 'collector_v0_1_snapshot'
+              ORDER BY id DESC
+              LIMIT 3;
+            \`);
+            console.table(res1.rows);
+
+            console.log('--- 2. ÚLTIMOS REPORTES SEMANALES ---');
+            const res2 = await client.query(\`
+              SELECT id, created_at, week_start, week_end, summary_md, metrics
+              FROM ai_cto.weekly_reports
+              ORDER BY id DESC
+              LIMIT 3;
+            \`);
+            console.table(res2.rows);
+
+            console.log('--- 3. ÚLTIMOS FALLOS REGISTRADOS ---');
+            const res3 = await client.query(\`
+              SELECT id, created_at, agent_id, task_type, severity, error_summary, resolved
+              FROM ai_cto.failures
+              WHERE agent_id = 'collector_v0_1'
+              ORDER BY id DESC
+              LIMIT 5;
+            \`);
+            console.table(res3.rows);
+
+            await client.end();
+          }
+          run().catch(err => {
+            console.error('❌ Error executing SQL:', err.message);
+            process.exit(1);
+          });
+          "
