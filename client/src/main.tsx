@@ -7,6 +7,8 @@ import superjson from "superjson";
 import App from "./App";
 import "./index.css";
 
+const API_URL = import.meta.env.VITE_API_URL || "";
+
 const queryClient = new QueryClient();
 
 // Log API errors but do NOT redirect - let the UI handle auth state
@@ -27,7 +29,7 @@ queryClient.getMutationCache().subscribe(event => {
 const trpcClient = trpc.createClient({
   links: [
     httpBatchLink({
-      url: "/api/trpc",
+      url: `${API_URL}/api/trpc`,
       transformer: superjson,
       fetch(input, init) {
         return globalThis.fetch(input, {

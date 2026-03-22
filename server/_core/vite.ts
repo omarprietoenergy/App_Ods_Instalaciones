@@ -3,7 +3,6 @@ import fs from "node:fs";
 import { type Server } from "node:http";
 import { nanoid } from "nanoid";
 import * as nodePath from "node:path";
-import { fileURLToPath } from "node:url";
 
 const __dirname_resolved = typeof __dirname !== 'undefined'
   ? __dirname
@@ -56,7 +55,7 @@ export function serveStatic(app: Express) {
   const distPath =
     process.env.NODE_ENV === "development"
       ? nodePath.resolve(__dirname_resolved, "../..", "dist", "public")
-      : nodePath.resolve(__dirname_resolved, "..", "public"); // Case for bundle structure (ods_backend/ + public/)
+      : nodePath.resolve(process.cwd(), "dist");
 
   console.log(`[Vite] Initializing static serving from: ${distPath}`);
 
@@ -68,9 +67,18 @@ export function serveStatic(app: Express) {
 
   app.use(express.static(distPath, { index: false }));
 
-  // fall through to index.html if the file doesn't exist
-  app.use("*", (req, res) => {
-    console.log(`[Vite] Static request for ${req.originalUrl} - falling back to index.html`);
-    res.sendFile(nodePath.resolve(distPath, "index.html"));
+  // SPA fallback: serve index.html for client-side routes
+  // BUT never intercept API routes or health checks
+  app.use("*", (req, res, next) => {
+    if (req.path.startsWith("/api/") || req.path.startsWith("/health")) {
+      return next();
+    }
+    console.log(`[Vite] SPA fallback for ${req.originalUrl} -> index.html`);
+    const indexPath = nodePath.resolve(distPath, "index.html");
+    if (fs.existsSync(indexPath)) {
+      res.sendFile(indexPath);
+    } else {
+      res.status(404).send("Not Found (Missing index.html)");
+    }
   });
 }

@@ -1,19 +1,34 @@
-import { boolean, int, json, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, date, time, uniqueIndex } from "drizzle-orm/mysql-core";
+import { boolean, integer, jsonb, pgEnum, pgTable, text, timestamp, varchar, decimal, date, time, uniqueIndex, serial } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
+
+export const roleEnum = pgEnum("role", ["admin", "project_manager", "technician", "admin_manager"]);
+export const workOrderTypeEnum = pgEnum("workOrderType", ["installation", "breakdown", "maintenance"]);
+export const statusEnum = pgEnum("status", ["pending", "in_progress", "completed", "cancelled"]);
+export const documentTypeEnum = pgEnum("documentType", ["plan", "project", "safety_plan", "contract", "permit", "specification", "conformity", "other"]);
+export const materialTypeEnum = pgEnum("materialType", ["received", "requested"]);
+export const materialStatusEnum = pgEnum("materialStatus", ["pending", "requested", "approved", "ordered", "received", "incident", "closed", "rejected"]);
+export const expenseCategoryEnum = pgEnum("category", ['fuel', 'toll', 'parking', 'hotel', 'meal', 'vehicle_cleaning', 'store_purchase', 'other']);
+export const expenseStatusEnum = pgEnum("expenseStatus", ['pending', 'approved', 'rejected', 'pending_invoicing', 'invoiced', 'void']);
+export const dailyAssignmentStatusEnum = pgEnum("dailyAssignmentStatus", ["assigned", "working", "paused", "completed"]);
+export const approvalStatusEnum = pgEnum("approvalStatus", ["approved", "pending"]);
+export const assignmentSourceEnum = pgEnum("assignmentSource", ["pm", "system", "technician"]);
+export const templateTypeEnum = pgEnum("templateType", ["installation_started", "installation_completed", "client_conformity"]);
+export const shiftStatusEnum = pgEnum("shiftStatus", ["active", "paused", "ended"]);
+export const notificationTypeEnum = pgEnum("notificationType", ["assignment_pending", "material_update", "system"]);
 
 /**
  * Core user table backing auth flow.
  */
-export const users = mysqlTable("users", {
-  id: int("id").autoincrement().primaryKey(),
+export const users = pgTable("users", {
+  id: serial("id").primaryKey(),
   openId: varchar("openId", { length: 64 }).unique(),
   name: text("name"),
   email: varchar("email", { length: 320 }).notNull().unique(),
   password: text("password"),
   loginMethod: varchar("loginMethod", { length: 64 }),
-  role: mysqlEnum("role", ["admin", "project_manager", "technician", "admin_manager"]).default("technician").notNull(),
+  role: roleEnum("role").default("technician").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
 });
 
@@ -23,8 +38,8 @@ export type InsertUser = typeof users.$inferInsert;
 /**
  * Installations table - stores photovoltaic installation projects
  */
-export const installations = mysqlTable("installations", {
-  id: int("id").autoincrement().primaryKey(),
+export const installations = pgTable("installations", {
+  id: serial("id").primaryKey(),
   // Client Info
   clientId: varchar("clientId", { length: 255 }).notNull(),
   clientName: varchar("clientName", { length: 255 }).notNull(),
@@ -34,23 +49,22 @@ export const installations = mysqlTable("installations", {
   address: text("address").notNull(),
 
   // Work Info
-  workOrderType: mysqlEnum("workOrderType", ["installation", "breakdown", "maintenance"]).default("installation").notNull(),
+  workOrderType: workOrderTypeEnum("workOrderType").default("installation").notNull(),
   workDescription: text("workDescription"),
-  installationType: varchar("installationType", { length: 100 }).notNull().default("solar"), // Keep for backward compat or generic type
+  installationType: varchar("installationType", { length: 100 }).notNull().default("solar"), 
 
   // Pricing
-  installationPrice: decimal("installationPrice", { precision: 10, scale: 2 }), // Restricted visibility
-  laborPrice: decimal("laborPrice", { precision: 10, scale: 2 }), // Visible to all
-  budget: varchar("budget", { length: 50 }), // Legacy field, keeping for now
+  installationPrice: decimal("installationPrice", { precision: 10, scale: 2 }), 
+  laborPrice: decimal("laborPrice", { precision: 10, scale: 2 }), 
+  budget: varchar("budget", { length: 50 }), 
 
   // Dates & Status
   startDate: timestamp("startDate"),
   endDate: timestamp("endDate"),
-  status: mysqlEnum("status", ["pending", "in_progress", "completed", "cancelled"]).default("pending").notNull(),
+  status: statusEnum("status").default("pending").notNull(),
 
   // Assignments
-  assignedTechnicianIds: json("assignedTechnicianIds"), // JSON array of numbers
-  // assignedTechnicianId: int("assignedTechnicianId"), // Deprecated/Legacy
+  assignedTechnicianIds: jsonb("assignedTechnicianIds"), 
 
   // Signatures & Conformity
   clientSignatureUrl: text("clientSignatureUrl"),
@@ -59,9 +73,9 @@ export const installations = mysqlTable("installations", {
   conformityPdfUrl: text("conformityPdfUrl"),
   conformityPdfKey: varchar("conformityPdfKey", { length: 500 }),
 
-  createdById: int("createdById").notNull(),
+  createdById: integer("createdById").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 });
 
 export type Installation = typeof installations.$inferSelect;
@@ -70,19 +84,17 @@ export type InsertInstallation = typeof installations.$inferInsert;
 /**
  * Documents table - stores references to files in S3
  */
-export const documents = mysqlTable("documents", {
-  id: int("id").autoincrement().primaryKey(),
-  installationId: int("installationId").notNull(),
+export const documents = pgTable("documents", {
+  id: serial("id").primaryKey(),
+  installationId: integer("installationId").notNull(),
   name: varchar("name", { length: 255 }).notNull(),
   fileKey: varchar("fileKey", { length: 500 }).notNull(),
   fileUrl: text("fileUrl").notNull(),
-  fileSize: int("fileSize"),
+  fileSize: integer("fileSize"),
   mimeType: varchar("mimeType", { length: 100 }),
-  documentType: mysqlEnum("documentType", [
-    "plan", "project", "safety_plan", "contract", "permit", "specification", "conformity", "other"
-  ]).notNull(),
-  description: text("description"), // For "other" type or general notes
-  uploadedById: int("uploadedById").notNull(),
+  documentType: documentTypeEnum("documentType").notNull(),
+  description: text("description"), 
+  uploadedById: integer("uploadedById").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
@@ -92,17 +104,17 @@ export type InsertDocument = typeof documents.$inferInsert;
 /**
  * Daily reports table
  */
-export const dailyReports = mysqlTable("dailyReports", {
-  id: int("id").autoincrement().primaryKey(),
-  installationId: int("installationId").notNull(),
-  userId: int("userId").notNull(),
+export const dailyReports = pgTable("dailyReports", {
+  id: serial("id").primaryKey(),
+  installationId: integer("installationId").notNull(),
+  userId: integer("userId").notNull(),
   reportDate: timestamp("reportDate").notNull(),
   workDescription: text("workDescription").notNull(),
-  hoursWorked: int("hoursWorked").notNull(),
+  hoursWorked: integer("hoursWorked").notNull(),
   signatureUrl: text("signatureUrl"),
   signatureKey: varchar("signatureKey", { length: 500 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 });
 
 export type DailyReport = typeof dailyReports.$inferSelect;
@@ -111,9 +123,9 @@ export type InsertDailyReport = typeof dailyReports.$inferInsert;
 /**
  * Photos table
  */
-export const photos = mysqlTable("photos", {
-  id: int("id").autoincrement().primaryKey(),
-  dailyReportId: int("dailyReportId").notNull(),
+export const photos = pgTable("photos", {
+  id: serial("id").primaryKey(),
+  dailyReportId: integer("dailyReportId").notNull(),
   fileKey: varchar("fileKey", { length: 500 }).notNull(),
   fileUrl: text("fileUrl").notNull(),
   caption: text("caption"),
@@ -126,22 +138,22 @@ export type InsertPhoto = typeof photos.$inferInsert;
 /**
  * Materials table
  */
-export const materials = mysqlTable("materials", {
-  id: int("id").autoincrement().primaryKey(),
-  installationId: int("installationId").notNull(),
-  userId: int("userId").notNull(), // Requestor or Receiver
-  type: mysqlEnum("type", ["received", "requested"]).notNull(),
-  requestId: varchar("requestId", { length: 100 }), // Group ID for multiple items
+export const materials = pgTable("materials", {
+  id: serial("id").primaryKey(),
+  installationId: integer("installationId").notNull(),
+  userId: integer("userId").notNull(), 
+  type: materialTypeEnum("type").notNull(),
+  requestId: varchar("requestId", { length: 100 }), 
   materialName: varchar("materialName", { length: 255 }).notNull(),
-  quantity: int("quantity").notNull(),
+  quantity: integer("quantity").notNull(),
   description: text("description"),
   supplierName: varchar("supplierName", { length: 255 }),
   deliveryNoteNumber: varchar("deliveryNoteNumber", { length: 100 }),
   deliveryNotePhotoKey: varchar("deliveryNotePhotoKey", { length: 500 }),
   deliveryNotePhotoUrl: text("deliveryNotePhotoUrl"),
-  status: mysqlEnum("status", ["pending", "requested", "approved", "ordered", "received", "incident", "closed", "rejected"]).default("pending").notNull(),
+  status: materialStatusEnum("status").default("pending").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 });
 
 export type Material = typeof materials.$inferSelect;
@@ -150,21 +162,21 @@ export type InsertMaterial = typeof materials.$inferInsert;
 /**
  * Expenses table
  */
-export const expenses = mysqlTable("expenses", {
-  id: int("id").autoincrement().primaryKey(),
-  installationId: int("installationId").notNull(),
-  userId: int("userId").notNull(),
+export const expenses = pgTable("expenses", {
+  id: serial("id").primaryKey(),
+  installationId: integer("installationId").notNull(),
+  userId: integer("userId").notNull(),
   date: date("date").notNull(),
-  category: mysqlEnum("category", ['fuel', 'toll', 'parking', 'hotel', 'meal', 'vehicle_cleaning', 'store_purchase', 'other']).notNull(),
+  category: expenseCategoryEnum("category").notNull(),
   vendor: varchar("vendor", { length: 255 }).notNull(),
   documentNumber: varchar("documentNumber", { length: 100 }).notNull(),
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
   receiptPhotoKey: varchar("receiptPhotoKey", { length: 500 }).notNull(),
   receiptPhotoUrl: text("receiptPhotoUrl").notNull(),
-  status: mysqlEnum("status", ['pending', 'approved', 'rejected', 'pending_invoicing', 'invoiced', 'void']).default('pending_invoicing').notNull(),
+  status: expenseStatusEnum("status").default('pending_invoicing').notNull(),
   notes: text("notes"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 });
 
 export type Expense = typeof expenses.$inferSelect;
@@ -173,9 +185,9 @@ export type InsertExpense = typeof expenses.$inferInsert;
 /**
  * Auxiliary Contacts table
  */
-export const auxiliaryContacts = mysqlTable("auxiliaryContacts", {
-  id: int("id").autoincrement().primaryKey(),
-  installationId: int("installationId").notNull(),
+export const auxiliaryContacts = pgTable("auxiliaryContacts", {
+  id: serial("id").primaryKey(),
+  installationId: integer("installationId").notNull(),
   contactName: varchar("contactName", { length: 255 }).notNull(),
   contactPhone: varchar("contactPhone", { length: 50 }),
   contactRole: varchar("contactRole", { length: 100 }), // e.g. "Jefe de Mantenimiento"
@@ -188,12 +200,12 @@ export type InsertAuxiliaryContact = typeof auxiliaryContacts.$inferInsert;
 /**
  * Installation Notes table
  */
-export const installationNotes = mysqlTable("installationNotes", {
-  id: int("id").autoincrement().primaryKey(),
-  installationId: int("installationId").notNull(),
-  userId: int("userId").notNull(),
+export const installationNotes = pgTable("installationNotes", {
+  id: serial("id").primaryKey(),
+  installationId: integer("installationId").notNull(),
+  userId: integer("userId").notNull(),
   noteText: text("noteText").notNull(),
-  parentNoteId: int("parentNoteId"), // For threading
+  parentNoteId: integer("parentNoteId"), // For threading
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
@@ -203,10 +215,10 @@ export type InsertInstallationNote = typeof installationNotes.$inferInsert;
 /**
  * Installation Audit Logs (General History)
  */
-export const installationAuditLogs = mysqlTable("installationAuditLogs", {
-  id: int("id").autoincrement().primaryKey(),
-  installationId: int("installationId").notNull(),
-  userId: int("userId").notNull(),
+export const installationAuditLogs = pgTable("installationAuditLogs", {
+  id: serial("id").primaryKey(),
+  installationId: integer("installationId").notNull(),
+  userId: integer("userId").notNull(),
   action: varchar("action", { length: 100 }).notNull(), // e.g., 'document_upload', 'report_created'
   details: text("details"), // Description of the action
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -218,19 +230,19 @@ export type InsertInstallationAuditLog = typeof installationAuditLogs.$inferInse
 /**
  * Technician Daily Assignments
  */
-export const technicianDailyAssignments = mysqlTable("technicianDailyAssignments", {
-  id: int("id").autoincrement().primaryKey(),
-  installationId: int("installationId").notNull(),
-  technicianId: int("technicianId").notNull(),
+export const technicianDailyAssignments = pgTable("technicianDailyAssignments", {
+  id: serial("id").primaryKey(),
+  installationId: integer("installationId").notNull(),
+  technicianId: integer("technicianId").notNull(),
   date: date("date").notNull(), // YYYY-MM-DD
-  status: mysqlEnum("status", ["assigned", "working", "paused", "completed"]).default("assigned").notNull(),
-  approvalStatus: mysqlEnum("approvalStatus", ["approved", "pending"]).default("approved").notNull(),
-  assignmentSource: mysqlEnum("assignmentSource", ["pm", "system", "technician"]).default("pm").notNull(),
+  status: dailyAssignmentStatusEnum("status").default("assigned").notNull(),
+  approvalStatus: approvalStatusEnum("approvalStatus").default("approved").notNull(),
+  assignmentSource: assignmentSourceEnum("assignmentSource").default("pm").notNull(),
   startTime: time("startTime"),
   endTime: time("endTime"),
-  totalMinutes: int("totalMinutes").default(0),
+  totalMinutes: integer("totalMinutes").default(0),
   activeStartTime: timestamp("activeStartTime"),
-  totalHours: int("totalHours").default(0), // Deprecated, keeping for compatibility
+  totalHours: integer("totalHours").default(0), 
   notes: text("notes"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (t) => ({
@@ -243,10 +255,10 @@ export type InsertTechnicianDailyAssignment = typeof technicianDailyAssignments.
 /**
  * Installation Status History table
  */
-export const installationStatusHistory = mysqlTable("installationStatusHistory", {
-  id: int("id").autoincrement().primaryKey(),
-  installationId: int("installationId").notNull(),
-  userId: int("userId").notNull(),
+export const installationStatusHistory = pgTable("installationStatusHistory", {
+  id: serial("id").primaryKey(),
+  installationId: integer("installationId").notNull(),
+  userId: integer("userId").notNull(),
   previousStatus: varchar("previousStatus", { length: 50 }),
   newStatus: varchar("newStatus", { length: 50 }).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -258,16 +270,16 @@ export type InsertInstallationStatusHistory = typeof installationStatusHistory.$
 /**
  * Email Templates table
  */
-export const emailTemplates = mysqlTable("emailTemplates", {
-  id: int("id").autoincrement().primaryKey(),
-  templateType: mysqlEnum("templateType", ["installation_started", "installation_completed", "client_conformity"]).notNull().unique(),
+export const emailTemplates = pgTable("emailTemplates", {
+  id: serial("id").primaryKey(),
+  templateType: templateTypeEnum("templateType").notNull().unique(),
   subject: varchar("subject", { length: 255 }).notNull(),
   body: text("body").notNull(), // HTML
   signature: text("signature"), // HTML
   logoUrl: text("logoUrl"),
   isActive: boolean("isActive").default(true).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 });
 
 export type EmailTemplate = typeof emailTemplates.$inferSelect;
@@ -276,17 +288,17 @@ export type InsertEmailTemplate = typeof emailTemplates.$inferInsert;
 /**
  * Technician Shifts (Tablas de Fichaje v15.2)
  */
-export const technicianShifts = mysqlTable("technicianShifts", {
-  id: int("id").autoincrement().primaryKey(),
-  technicianId: int("technicianId").notNull(),
+export const technicianShifts = pgTable("technicianShifts", {
+  id: serial("id").primaryKey(),
+  technicianId: integer("technicianId").notNull(),
   date: date("date").notNull(),
-  status: mysqlEnum("status", ["active", "paused", "ended"]).default("active").notNull(),
+  status: shiftStatusEnum("status").default("active").notNull(),
   startAt: timestamp("startAt").defaultNow().notNull(),
   endAt: timestamp("endAt"),
-  totalMinutes: int("totalMinutes").default(0),
+  totalMinutes: integer("totalMinutes").default(0),
   activeStartAt: timestamp("activeStartAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 }, (t) => ({
   unq: uniqueIndex("unique_shift").on(t.technicianId, t.date),
 }));
@@ -297,11 +309,11 @@ export type InsertTechnicianShift = typeof technicianShifts.$inferInsert;
 /**
  * Notifications (v15.2)
  */
-export const notifications = mysqlTable("notifications", {
-  id: int("id").autoincrement().primaryKey(),
-  type: mysqlEnum("type", ["assignment_pending", "material_update", "system"]).notNull(),
-  installationId: int("installationId"),
-  technicianId: int("technicianId"),
+export const notifications = pgTable("notifications", {
+  id: serial("id").primaryKey(),
+  type: notificationTypeEnum("type").notNull(),
+  installationId: integer("installationId"),
+  technicianId: integer("technicianId"),
   date: date("date"),
   message: text("message").notNull(),
   readAt: timestamp("readAt"),

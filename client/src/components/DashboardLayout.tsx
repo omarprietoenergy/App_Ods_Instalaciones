@@ -101,7 +101,8 @@ function DashboardLayoutContent({
 
   const [appVersion, setAppVersion] = useState("");
   useEffect(() => {
-    fetch('/api/version')
+    const API_URL = import.meta.env.VITE_API_URL || "";
+    fetch(`${API_URL}/api/version`, { credentials: "omit" })
       .then(res => res.json())
       .then(data => setAppVersion(data.version))
       .catch(err => console.error("Failed to fetch version", err));

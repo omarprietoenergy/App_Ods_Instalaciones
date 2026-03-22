@@ -6,9 +6,8 @@ import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerLocalAuthRoutes } from "./local-auth";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
-import { serveStatic } from "./vite";
 import * as nodePath from "node:path";
-import { fileURLToPath } from "node:url";
+import * as fs from "node:fs";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -20,10 +19,9 @@ function isPortAvailable(port: number): Promise<boolean> {
   });
 }
 
-// Helper to read version
+// Helper to read version and build info
 function getAppVersion() {
   try {
-    // Usually at the root in production container/zip
     const pkgPath = nodePath.resolve(process.cwd(), 'package.json');
     const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
     return pkg.version || '0.0.0';
@@ -31,7 +29,6 @@ function getAppVersion() {
     return 'dev';
   }
 }
-import * as fs from 'node:fs';
 
 async function findAvailablePort(startPort: number = 3000): Promise<number> {
   for (let port = startPort; port < startPort + 20; port++) {
@@ -46,35 +43,90 @@ const app = express();
 const server = createServer(app);
 
 async function startServer() {
-  // Safely determine __dirname for both CJS and ESM contexts without relying on import.meta.url
-  // In CJS, __dirname is globally available.
-  // In ESM, it's not, and process.cwd() is a reasonable fallback for application root.
-  const __dirname_resolved = typeof __dirname !== 'undefined'
-    ? __dirname
-    : process.cwd();
   console.log("[Server] Configuring middleware...");
-  // Configure body parser with larger size limit for file uploads
+  
+  // Mandatory S3 check for production/staging
+  if (process.env.NODE_ENV !== "development") {
+    if (process.env.STORAGE_TYPE === "local" || !process.env.STORAGE_TYPE) {
+      console.error("[Server] CRITICAL: STORAGE_TYPE is 'local' or unset out of development.");
+      throw new Error("Spaces (S3) must be mandatory outside development. Set STORAGE_TYPE=s3 and provide S3 credentials.");
+    }
+  }
+
+  // Cross-Origin Resource Sharing (CORS) Configuration
+  const allowedOrigins = [
+    "http://localhost:5173", 
+    "http://localhost:3000",
+    "https://staging.odsenergy.net",
+    "https://app.odsenergy.net"
+  ];
+  if (process.env.FRONTEND_URL) {
+      allowedOrigins.push(...process.env.FRONTEND_URL.split(','));
+  }
+
+  app.use((req, res, next) => {
+    const origin = req.headers.origin;
+    if (origin && allowedOrigins.includes(origin)) {
+      res.header("Access-Control-Allow-Origin", origin);
+      res.header("Access-Control-Allow-Credentials", "true");
+      res.header("Access-Control-Allow-Methods", "GET,PUT,POST,DELETE,OPTIONS");
+      res.header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Cookie");
+    }
+    
+    if (req.method === "OPTIONS") {
+      res.sendStatus(200);
+      return;
+    }
+    next();
+  });
+
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
-  // SERVE UPLOADS (Fix 404 for local storage)
-  // Use process.cwd() to be safe about where the uploads folder is relative to execution
   app.use('/uploads', express.static(nodePath.join(process.cwd(), 'uploads')));
-
 
   console.log("[Server] Setting up local authentication...");
   registerLocalAuthRoutes(app);
 
-  // Version Endpoint (P0)
+  // --- Observability endpoints ---
+
+  // Version / Build ID endpoint
+  const envLabel = process.env.APP_ENV || process.env.NODE_ENV || "not set";
+  
   app.get("/api/version", (req, res) => {
     res.json({
       version: getAppVersion(),
-      timestamp: new Date().toISOString()
+      buildId: process.env.BUILD_ID || process.env.COMMIT_SHA || "unknown",
+      env: envLabel,
+      timestamp: new Date().toISOString(),
+    });
+  });
+  // Alias
+  app.get("/api/__version", (req, res) => {
+    res.json({
+      version: getAppVersion(),
+      buildId: process.env.BUILD_ID || process.env.COMMIT_SHA || "unknown",
+      env: envLabel,
+      timestamp: new Date().toISOString(),
     });
   });
 
+  // Health endpoint with real DB ping
+  app.get("/health", async (req, res) => {
+    try {
+      const { getDb } = await import("../db");
+      const db = await getDb();
+      if (db) {
+        res.json({ status: "ok", db: "connected", version: getAppVersion() });
+      } else {
+        res.status(503).json({ status: "error", db: "not connected" });
+      }
+    } catch (e: any) {
+      res.status(503).json({ status: "error", db: e.message });
+    }
+  });
+
   console.log("[Server] Setting up tRPC API...");
-  // tRPC API
   app.use(
     "/api/trpc",
     createExpressMiddleware({
@@ -83,9 +135,7 @@ async function startServer() {
     })
   );
 
-  // Serve uploads directory if storage is local
   const uploadDir = process.env.UPLOAD_DIR || "uploads";
-  // Fallback to relative path from process.cwd() or absolute if provided
   const uploadPath = nodePath.isAbsolute(uploadDir)
     ? uploadDir
     : nodePath.resolve(process.cwd(), uploadDir);
@@ -103,49 +153,144 @@ async function startServer() {
       serveStatic(app);
     }
   } else {
-    console.log("[Server] Environment: production. Setting up static serving...");
-    const { serveStatic } = await import("./vite");
-    serveStatic(app);
+    console.log("[Server] Environment: production.");
+    if (process.env.SERVE_STATIC === "true") {
+      console.log("[Server] SERVE_STATIC is true. Setting up static serving...");
+      const { serveStatic } = await import("./vite");
+      serveStatic(app);
+    } else {
+      console.log("[Server] SERVE_STATIC is false. Running in API-only mode.");
+      app.get("/", (req, res) => {
+        res.status(200).send("ODS Energy API — v" + getAppVersion());
+      });
+      // Return 404 for unknown routes to avoid SPA fallback
+      app.use((req, res) => {
+        res.status(404).json({ error: "Not Found (API Only Mode)" });
+      });
+    }
   }
 
-  const rawPort = process.env.PORT;
-  const preferredPort = rawPort && !isNaN(Number(rawPort)) ? parseInt(rawPort) : rawPort || 3000;
-  let port: number | string = preferredPort;
-
-  if (process.env.NODE_ENV !== "production" && typeof preferredPort === "number") {
-    port = await findAvailablePort(preferredPort);
-  }
-
-  console.log(`[Server] Attempting to listen on port: ${port}`);
-
-  // Passenger compatibility: Passenger handles the listening for us.
-  // cPanel/Passenger usually sets PASSENGER_APP_ENV, LSNODE_PORT, or gives us a socket on PORT
-  // User provided specific robust detection:
+  // --- LISTEN LOGIC ---
   const isPassenger = !!process.env.PASSENGER_APP_ENV ||
     !!process.env.PASSENGER_BASE_URI ||
     !!process.env.LSNODE_PORT ||
     (!!process.env.PORT && process.env.PORT.startsWith("/"));
 
-  if (process.env.NODE_ENV === "production" || isPassenger) {
+  const listenPort = Number(process.env.PORT || 3000);
+
+  console.log("[Server] Listen decision:");
+  console.log("  isPassenger =", isPassenger);
+  console.log("  NODE_ENV =", process.env.NODE_ENV);
+  console.log("  APP_ENV =", process.env.APP_ENV);
+  console.log("  PORT =", process.env.PORT);
+  console.log("  listenPort =", listenPort);
+
+  if (isPassenger) {
     console.log("--------------------------------------------------");
-    console.log("[Server] Production / Passenger detected.");
-    console.log("[Server] Skipping manual server.listen() to allow Passenger to handle the socket.");
+    console.log("[Server] Passenger detected. Skipping server.listen().");
     console.log("--------------------------------------------------");
   } else {
-    // strict idempotency for local dev
     if (!globalThis.__ods_listening) {
       globalThis.__ods_listening = true;
-      server.listen(port, () => {
-        console.log(`[Server] SUCCESS: Running on port ${port} (Env: ${process.env.NODE_ENV || 'production'})`);
+      server.listen(listenPort, "0.0.0.0", () => {
+        console.log(`[Server] SUCCESS: Listening on 0.0.0.0:${listenPort} (Env: ${envLabel})`);
       });
     } else {
-      console.log("[Server] Already listening (idempotency check).");
+      console.log("[Server] Already listening (idempotency guard).");
     }
   }
 }
 
-// Autonomous Startup
-import { runMigrations } from "../migrations";
+// ==================== INLINE MODULES ====================
+// runMigrations is kept inline to prevent esbuild --packages=external from stripping it.
+// The standalone scripts/migrate.ts is the preferred way to run migrations.
+import { drizzle as drizzleMigrate } from "drizzle-orm/node-postgres";
+import { migrate } from "drizzle-orm/node-postgres/migrator";
+import { Pool as PgPool } from "pg";
+import nodePath2 from "node:path";
+import bcrypt from "bcryptjs";
+
+async function runMigrations() {
+  if (process.env.RUN_MIGRATIONS !== "true") {
+    console.log("[Migrations] RUN_MIGRATIONS is not true. Skipping.");
+    return;
+  }
+  if (!process.env.DATABASE_URL) {
+    console.error("[Migrations] CRITICAL: DATABASE_URL not set.");
+    return;
+  }
+  console.log("[Migrations] Starting migrations...");
+  const migrationPool = new PgPool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: { rejectUnauthorized: false },
+  });
+  const migrationDb = drizzleMigrate(migrationPool);
+  try {
+    const migrationsPath = nodePath2.join(process.cwd(), "drizzle");
+    console.log("[Migrations] migrationsFolder =", migrationsPath);
+    await migrate(migrationDb, {
+      migrationsFolder: migrationsPath,
+      migrationsSchema: "public",
+    });
+    console.log("[Migrations] Migrations completed OK");
+  } catch (error: any) {
+    console.error("[Migrations] ERROR:", error.message);
+    // Don't throw — migration failure should not prevent server from starting
+    // when RUN_MIGRATIONS is set. Use scripts/migrate.ts for strict mode.
+  } finally {
+    await migrationPool.end();
+    console.log("[Migrations] Pool closed.");
+  }
+}
+
+async function seedAdmin() {
+  if (process.env.STAGING_BOOTSTRAP_ADMIN !== "true") {
+    console.log("[Seed] STAGING_BOOTSTRAP_ADMIN is not true. Skipping.");
+    return;
+  }
+  if (!process.env.DATABASE_URL) {
+    console.error("[Seed] CRITICAL: DATABASE_URL not set.");
+    return;
+  }
+  const adminEmail = process.env.ADMIN_EMAIL;
+  const adminPassword = process.env.ADMIN_PASSWORD;
+  const adminName = process.env.ADMIN_NAME || "Admin";
+  if (!adminEmail || !adminPassword) {
+    console.error("[Seed] ADMIN_EMAIL and ADMIN_PASSWORD must be set.");
+    return;
+  }
+  console.log("[Seed] Checking for existing admin users...");
+  const seedPool = new PgPool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: { rejectUnauthorized: false },
+  });
+  try {
+    const result = await seedPool.query(
+      `SELECT id, email FROM users WHERE email = $1 LIMIT 1`,
+      [adminEmail]
+    );
+    if (result.rows.length > 0) {
+      console.log(`[Seed] Admin ${adminEmail} already exists. Updating password/name...`);
+    } else {
+      console.log(`[Seed] Creating admin: ${adminEmail}`);
+    }
+    const hashedPassword = await bcrypt.hash(adminPassword, 10);
+    await seedPool.query(
+      `INSERT INTO users (email, password, name, role, "loginMethod", "createdAt", "updatedAt", "lastSignedIn")
+       VALUES ($1, $2, $3, 'admin', 'local', now(), now(), now())
+       ON CONFLICT (email) DO UPDATE SET role = 'admin', password = $2, name = $3`,
+      [adminEmail, hashedPassword, adminName]
+    );
+    console.log(`[Seed] SUCCESS: Admin processed — ${adminEmail}`);
+  } catch (error: any) {
+    console.error("[Seed] ERROR:", error.message);
+  } finally {
+    await seedPool.end();
+    console.log("[Seed] Pool closed.");
+  }
+}
+
+// ==================== STARTUP ====================
 
 declare global {
   var __ods_initialized: boolean | undefined;
@@ -156,20 +301,16 @@ if (!globalThis.__ods_initialized) {
   console.log("[Server] Initializing startup sequence...");
   globalThis.__ods_initialized = true;
 
-  runMigrations().then(() => {
-    startServer().catch(err => {
-      console.error("[Server] CRITICAL STARTUP ERROR:", err);
+  runMigrations()
+    .then(() => seedAdmin())
+    .then(() => {
+      startServer().catch(err => {
+        console.error("[Server] CRITICAL STARTUP ERROR:", err);
+      });
+    })
+    .catch(err => {
+      console.error("[Server] CRITICAL STARTUP ERROR (pre-server):", err);
     });
-  });
 } else {
   console.log("[Server] Already initialized, skipping startup sequence.");
 }
-
-// Passenger compatibility export
-// @ts-ignore
-if (typeof module !== 'undefined' && module.exports) {
-  // @ts-ignore
-  module.exports = app;
-}
-
-export { app, server };

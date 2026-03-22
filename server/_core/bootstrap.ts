@@ -1,11 +1,10 @@
 import * as nodePath from "node:path";
-import { fileURLToPath } from "node:url";
 import fs from "node:fs";
 import dotenv from "dotenv";
 
 console.log("[Bootstrap] Starting initialization...");
 
-// Compatibilidad para CJS y ESM - Detección segura de directorio
+// Compatibilidad estricta para CJS
 let _dirname = "";
 try {
     // En CJS, __dirname está definido globalmente
@@ -13,13 +12,11 @@ try {
     if (typeof __dirname !== 'undefined') {
         _dirname = __dirname;
     } else {
-        // Fallback para ESM si no hay bundling
-        _dirname = nodePath.dirname(fileURLToPath(import.meta.url));
+        _dirname = process.cwd();
     }
 } catch (e) {
     _dirname = process.cwd();
 }
-
 
 const __dirname_resolved = _dirname;
 console.log(`[Bootstrap] Resolved directory: ${__dirname_resolved}`);
