@@ -56,7 +56,7 @@ async function runCollector() {
     const activeConflictsRes = await sourcePool.query(`
       SELECT "technicianId", COUNT(*) as count
       FROM public."technicianDailyAssignments"
-      WHERE status = 'working' AND "endAt" IS NULL
+      WHERE status = 'working' AND "endTime" IS NULL
       GROUP BY "technicianId"
       HAVING COUNT(*) > 1
     `);
@@ -105,7 +105,7 @@ async function runCollector() {
       LEFT JOIN public."technicianDailyAssignments" tda
         ON i.id = tda."installationId" AND tda."createdAt" > (CURRENT_TIMESTAMP AT TIME ZONE $1) - INTERVAL '7 days'
       LEFT JOIN public."installationStatusHistory" ish
-        ON i.id = ish."installationId" AND ish."changedAt" > (CURRENT_TIMESTAMP AT TIME ZONE $1) - INTERVAL '7 days'
+        ON i.id = ish."installationId" AND ish."createdAt" > (CURRENT_TIMESTAMP AT TIME ZONE $1) - INTERVAL '7 days'
       WHERE i.status = 'in_progress'
         AND dr.id IS NULL
         AND tda.id IS NULL
@@ -153,16 +153,16 @@ async function runCollector() {
 
     const summaryMd = `
 # ODS Energy - Reporte Operativo v0.1
-
+ 
 **Resumen Ejecutivo:**
 Se ha ejecutado el snapshot del estado operativo. Se detectan las siguientes fricciones principales:
-
+ 
 **Top fricciones detectadas:**
 - Asignaciones conflictivas (múltiples activas): ${metrics.multiple_active_assignments}
 - Jornadas abiertas de días anteriores: ${metrics.stale_open_shifts}
 - Asignaciones completadas sin parte de trabajo (últimos 2 días): ${metrics.completed_assignments_without_reports}
 - Instalaciones activas sin movimiento en 7 días: ${metrics.installations_in_progress_without_recent_activity}
-
+ 
 **Prioridades Propuestas (P0/P1/P2):**
 ${metrics.stale_open_shifts > 0 ? '- P0: Cerrar jornadas de días anteriores inmediatamente.' : ''}
 ${metrics.completed_assignments_without_reports > 0 ? '- P1: Reclamar partes de trabajo faltantes a los técnicos.' : ''}
