@@ -1,0 +1,44 @@
+name: Verify AI-CTO v0.2 Output
+
+on:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify Output
+        env:
+          AI_CTO_DATABASE_URL: ${{ secrets.AI_CTO_DATABASE_URL }}
+        run: |
+          echo "==== 1) weekly_reports ===="
+          psql "$AI_CTO_DATABASE_URL" -c "
+          SELECT id, created_at, week_start, week_end, summary_md, metrics
+          FROM ai_cto.weekly_reports
+          ORDER BY id DESC
+          LIMIT 3;
+          "
+          
+          echo "==== 2) task_metrics ===="
+          psql "$AI_CTO_DATABASE_URL" -c "
+          SELECT id, created_at, task_type, source_channel, requester, primary_agent, final_agent, success, latency_ms, notes
+          FROM ai_cto.task_metrics
+          ORDER BY id DESC
+          LIMIT 5;
+          "
+          
+          echo "==== 3) innovation_proposals ===="
+          psql "$AI_CTO_DATABASE_URL" -c "
+          SELECT id, created_at, title, area, status, expected_impact, estimated_effort, risk_level, meta
+          FROM ai_cto.innovation_proposals
+          ORDER BY id DESC
+          LIMIT 5;
+          "
+          
+          echo "==== 4) experiments ===="
+          psql "$AI_CTO_DATABASE_URL" -c "
+          SELECT id, created_at, name, owner, status, hypothesis, meta
+          FROM ai_cto.experiments
+          ORDER BY id DESC
+          LIMIT 5;
+          "
