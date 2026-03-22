@@ -38,6 +38,6 @@ jobs:
         env:
           ODS_SOURCE_DATABASE_URL: ${{ secrets.ODS_SOURCE_DATABASE_URL }}
           AI_CTO_DATABASE_URL: ${{ secrets.AI_CTO_DATABASE_URL }}
-          AI_CTO_TIMEZONE: ${{ secrets.AI_CTO_TIMEZONE }}
+          AI_CTO_TIMEZONE: 'Europe/Madrid'
           AI_CTO_COLLECTOR_DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
         run: pnpm exec tsx scripts/ai-cto/collector-v0.1.ts
