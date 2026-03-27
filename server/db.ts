@@ -363,3 +363,23 @@ export async function upsertUser(data: any) {
 }
 
 export { getUserByEmail as getUserByEmailDb };
+
+export async function createExpense(data: any) {
+  const db = await getDb();
+  return await db.insert(expenses).values(data).returning();
+}
+
+export async function getExpensesByInstallation(installationId: number) {
+  const db = await getDb();
+  return await db.select().from(expenses).where(eq(expenses.installationId, installationId)).orderBy(desc(expenses.expenseDate));
+}
+
+export async function updateExpense(id: number, data: any) {
+  const db = await getDb();
+  await db.update(expenses).set(data).where(eq(expenses.id, id));
+}
+
+export async function deleteExpense(id: number) {
+  const db = await getDb();
+  await db.delete(expenses).where(eq(expenses.id, id));
+}
